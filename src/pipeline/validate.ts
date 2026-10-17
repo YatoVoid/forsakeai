@@ -50,12 +50,20 @@ function capitalizedNames(text: string): string[] {
   return names;
 }
 
+export interface ValidateOptions {
+  /** Flagged stock phrases in the original. Their words don't count toward the meaning overlap. */
+  stock?: string[];
+  /** Word-overlap meaning checks. Off when an embedding check runs instead. Default on. */
+  lexicalMeaning?: boolean;
+}
+
 export function validateRewrite(
   original: string,
   rewrite: string,
   lang: string,
   detect: LangDetect,
   neighbors: string[] = [],
+  opts: ValidateOptions = {},
 ): string[] {
   const reasons: string[] = [];
   if (!rewrite.trim()) return ['empty rewrite'];
@@ -83,9 +91,10 @@ export function validateRewrite(
   if (before >= MIN_WORDS_FOR_LOWER_BOUND && after < before * 0.5) reasons.push('cut too much');
   if (after > Math.max(before * 1.8, before + 5)) reasons.push('grew too long');
 
-  const stemsBefore = contentStems(original);
+  const stock = new Set((opts.stock ?? []).flatMap((p) => [...contentStems(p)]));
+  const stemsBefore = new Set([...contentStems(original)].filter((s) => !stock.has(s)));
   const stemsAfter = contentStems(rewrite);
-  if (stemsBefore.size >= MIN_CONTENT_WORDS) {
+  if (opts.lexicalMeaning !== false && stemsBefore.size >= MIN_CONTENT_WORDS) {
     const kept = overlap(stemsBefore, stemsAfter);
     if (kept < MIN_CONTENT_OVERLAP) reasons.push('changed the meaning');
     else if (neighbors.some((n) => overlap(stemsAfter, contentStems(n)) > overlap(stemsAfter, stemsBefore) + 0.15)) {
@@ -94,9 +103,8 @@ export function validateRewrite(
   }
 
   // A rewrite may not swap one stock phrase for another ("Moreover" → "Furthermore").
-  const had = new Set(runRules(original, lang).flags.filter((f) => !f.fixed).map((f) => f.ruleId));
-  const added = runRules(rewrite, lang).flags.filter((f) => !f.fixed && !had.has(f.ruleId));
-  if (added.length) reasons.push(`added stock phrasing ("${added[0]!.match.trim()}")`);
+  const added = stockDiff(original, rewrite, lang).added;
+  if (added.length) reasons.push(`added stock phrasing ("${added[0]}")`);
 
   const plainOriginal = stripTokens(original).trim();
   const plainRewrite = stripTokens(rewrite).trim();
@@ -111,4 +119,15 @@ export function validateRewrite(
     if (source === lang && target !== 'und' && target !== source) reasons.push('switched language');
   }
   return reasons;
+}
+
+/** Stock phrases the rewrite added, and ones from the original it still uses. */
+export function stockDiff(original: string, rewrite: string, lang: string): { added: string[]; left: string[] } {
+  const open = (text: string) => runRules(text, lang).flags.filter((f) => !f.fixed);
+  const had = new Set(open(original).map((f) => f.ruleId));
+  const now = open(rewrite);
+  return {
+    added: now.filter((f) => !had.has(f.ruleId)).map((f) => f.match.trim()),
+    left: now.filter((f) => had.has(f.ruleId)).map((f) => f.match.trim()),
+  };
 }

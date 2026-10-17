@@ -1,17 +1,29 @@
 import { runRules } from '../engines/rules/run';
 import { EngineError, type Engine } from '../engines/types';
-import { chunkDoc, isStiff, type Chunk } from './chunk';
+import { chunkDoc, estimateTokens, isStiff, type Chunk } from './chunk';
 import { buildPrompt, buildSentencePrompt, parseResponse, parseSentenceResponse, type BuiltPrompt, type PassMode, type Register } from './prompt';
 import { protect, unprotect } from './protect';
 import type { Doc, Sentence } from './types';
-import { validateRewrite, type LangDetect } from './validate';
+import { stockDiff, validateRewrite, type LangDetect } from './validate';
 import type { VoiceProfile } from './voice';
+
+export interface MeaningScorer {
+  /** Cosine similarity between `text` and each of `others`. */
+  similarity(text: string, others: string[]): Promise<number[]>;
+}
+
+/** Below this embedding similarity to the original, a rewrite has probably changed the meaning. */
+export const MIN_SIMILARITY = 0.62;
+/** Sentence mode asks again while a rewrite fails validation or still carries a stock phrase. */
+const MAX_SENTENCE_ATTEMPTS = 3;
 
 export interface RunOptions {
   register: Register;
   signal: AbortSignal;
   detect: LangDetect;
   voice?: VoiceProfile | null;
+  /** Embedding check for sentence mode. Without it, meaning is judged by word overlap. */
+  meaning?: MeaningScorer | null;
   /** Re-check rewrites with the rule list and send leftovers back once. Default on. */
   audit?: boolean;
   maxTransientRetries?: number;
@@ -68,12 +80,18 @@ export const defaultSleep = (ms: number, signal: AbortSignal) =>
     signal.addEventListener('abort', onAbort, { once: true });
   });
 
-async function completeWithRetry(engine: Engine, prompt: BuiltPrompt, opts: RunOptions, cb: RunCallbacks): Promise<string> {
+async function completeWithRetry(
+  engine: Engine,
+  prompt: BuiltPrompt,
+  opts: RunOptions,
+  cb: RunCallbacks,
+  maxTokens?: number,
+): Promise<string> {
   const max = opts.maxTransientRetries ?? 6;
   const sleep = opts.sleep ?? defaultSleep;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await engine.complete({ system: prompt.system, user: prompt.user, signal: opts.signal, onProgress: cb.onProgress });
+      return await engine.complete({ system: prompt.system, user: prompt.user, signal: opts.signal, onProgress: cb.onProgress, maxTokens });
     } catch (err) {
       if (opts.signal.aborted) throw new EngineError('aborted', 'Stopped');
       if (!(err instanceof EngineError) || !err.retryable || attempt >= max) throw err;
@@ -95,7 +113,16 @@ function neighbours(chunk: Chunk, index: Index, id: string): string[] {
     .map((s) => s.rewrite ?? s.text);
 }
 
-function evaluate(prompt: BuiltPrompt, response: string, index: Index, detect: LangDetect, chunk: Chunk) {
+/** The flagged phrases the model was asked to fix in this sentence. */
+function stockOf(s: Sentence, mode: PassMode): string[] {
+  const flags = mode === 'audit' ? (s.auditFlags ?? []) : s.flags;
+  return flags.filter((f) => !f.fixed && f.match).map((f) => f.match);
+}
+
+/** Room for a rewrite up to twice the original's length, so a rambling small model stops early. */
+const sentenceTokenCap = (masked: string) => Math.max(96, estimateTokens(masked) * 2 + 48);
+
+function evaluate(prompt: BuiltPrompt, response: string, index: Index, detect: LangDetect, chunk: Chunk, mode: PassMode) {
   const parsed = parseResponse(response);
   const chunkReasons: string[] = [];
   const results = new Map<string, TargetResult>();
@@ -104,7 +131,7 @@ function evaluate(prompt: BuiltPrompt, response: string, index: Index, detect: L
   for (const key of parsed.keys()) if (!keys.has(key)) chunkReasons.push(`unknown sentence ${key}`);
 
   for (const t of prompt.targets) {
-    const lang = index.get(t.sentenceId)!.lang;
+    const { lang, sentence } = index.get(t.sentenceId)!;
     const candidates = parsed.get(t.key);
     if (!candidates?.length) {
       chunkReasons.push(`missing ${t.key}`);
@@ -113,7 +140,9 @@ function evaluate(prompt: BuiltPrompt, response: string, index: Index, detect: L
     }
     if (candidates.length > 1) chunkReasons.push(`${t.key} appeared twice`);
     const candidate = candidates[0]!;
-    const reasons = validateRewrite(t.masked, candidate, lang, detect, neighbours(chunk, index, t.sentenceId));
+    const reasons = validateRewrite(t.masked, candidate, lang, detect, neighbours(chunk, index, t.sentenceId), {
+      stock: stockOf(sentence, mode),
+    });
     results.set(t.sentenceId, reasons.length ? { reasons } : { rewrite: unprotect(candidate, t.slots, t.offset), reasons });
   }
   return { results, chunkReasons };
@@ -133,21 +162,12 @@ export async function runChunk(
 
   if (engine.granularity === 'sentence') {
     const final = new Map<string, TargetResult>();
-    for (const id of chunk.targets) {
-      if (opts.signal.aborted) throw new EngineError('aborted', 'Stopped');
-      const ask = async (strictReasons?: string[]) => {
-        const prompt = buildSentencePrompt(chunk, id, lookup, { ...base, strictReasons });
-        const reply = parseSentenceResponse(await completeWithRetry(engine, prompt, opts, cb));
-        return evaluate(prompt, reply ? `S1: ${reply}` : '', index, opts.detect, chunk).results.get(id)!;
-      };
-      const first = await ask();
-      final.set(id, first.rewrite ? first : await ask(first.reasons));
-    }
+    for (const id of chunk.targets) final.set(id, await rewriteSentence(chunk, id, index, engine, opts, cb, base));
     return applyResults(chunk, lookup, final, mode);
   }
 
   const first = buildPrompt(chunk, lookup, base);
-  const attempt1 = evaluate(first, await completeWithRetry(engine, first, opts, cb), index, opts.detect, chunk);
+  const attempt1 = evaluate(first, await completeWithRetry(engine, first, opts, cb), index, opts.detect, chunk, mode);
 
   let final = attempt1.results;
   const failed = [...attempt1.results.values()].some((r) => !r.rewrite);
@@ -159,7 +179,7 @@ export async function runChunk(
         .flatMap(([id, r]) => r.reasons.map((x) => `${first.targets.find((t) => t.sentenceId === id)!.key} ${x}`)),
     ];
     const second = buildPrompt(chunk, lookup, { ...base, strictReasons: [...new Set(reasons)] });
-    const attempt2 = evaluate(second, await completeWithRetry(engine, second, opts, cb), index, opts.detect, chunk);
+    const attempt2 = evaluate(second, await completeWithRetry(engine, second, opts, cb), index, opts.detect, chunk, mode);
     final = new Map();
     for (const id of chunk.targets) {
       const a = attempt1.results.get(id);
@@ -169,6 +189,63 @@ export async function runChunk(
   }
 
   return applyResults(chunk, lookup, final, mode);
+}
+
+interface Candidate {
+  rewrite: string;
+  /** Stock phrases from the original that the rewrite still uses. */
+  left: string[];
+  similarity: number;
+}
+
+/**
+ * One sentence at a time, for small models. Keeps every valid answer and
+ * returns the one with the fewest leftover stock phrases, then the closest
+ * in meaning. Asks again with the rejection reasons, up to a fixed limit.
+ */
+async function rewriteSentence(
+  chunk: Chunk,
+  id: string,
+  index: Index,
+  engine: Engine,
+  opts: RunOptions,
+  cb: RunCallbacks,
+  base: { register: Register; lang: string; voice?: VoiceProfile | null; mode: PassMode },
+): Promise<TargetResult> {
+  const lookup = (sid: string) => index.get(sid)?.sentence;
+  const { sentence, lang } = index.get(id)!;
+  const stock = stockOf(sentence, base.mode);
+  const near = neighbours(chunk, index, id);
+  const valid: Candidate[] = [];
+  let reasons: string[] = [];
+  let strictReasons: string[] | undefined;
+
+  for (let attempt = 0; attempt < MAX_SENTENCE_ATTEMPTS; attempt++) {
+    if (opts.signal.aborted) throw new EngineError('aborted', 'Stopped');
+    const prompt = buildSentencePrompt(chunk, id, lookup, { ...base, strictReasons });
+    const target = prompt.targets[0]!;
+    const reply = parseSentenceResponse(await completeWithRetry(engine, prompt, opts, cb, sentenceTokenCap(target.masked))) ?? '';
+    reasons = validateRewrite(target.masked, reply, lang, opts.detect, near, { stock, lexicalMeaning: !opts.meaning });
+    let similarity = 1;
+    if (!reasons.length && opts.meaning) {
+      const [own = 0, ...others] = await opts.meaning.similarity(reply, [target.masked, ...near]);
+      similarity = own;
+      if (own < MIN_SIMILARITY) reasons.push('changed the meaning');
+      else if (others.some((o) => o > own)) reasons.push('rewrote a neighbouring sentence');
+    }
+    if (reasons.length) {
+      strictReasons = reasons;
+      continue;
+    }
+    const left = stockDiff(target.masked, reply, lang).left;
+    valid.push({ rewrite: unprotect(reply, target.slots, target.offset), left, similarity });
+    if (!left.length) break;
+    strictReasons = [`it still says "${left[0]}"`];
+  }
+
+  if (!valid.length) return { reasons };
+  valid.sort((a, b) => a.left.length - b.left.length || b.similarity - a.similarity);
+  return { rewrite: valid[0]!.rewrite, reasons: [] };
 }
 
 function applyResults(
@@ -284,6 +361,8 @@ export async function rewriteDoc(doc: Doc, engine: Engine, opts: RunOptions, cb:
 
   if (opts.audit === false) return;
   const targets = auditRewrites(doc);
+  // Sentence mode already retried each leftover stock phrase.
+  if (engine.granularity === 'sentence') return;
   for (const s of index.values()) if (s.sentence.auditFlags?.length && !s.sentence.audited) targets.add(s.sentence.id);
   if (!targets.size) return;
   const audit = chunkDoc(doc, (s) => targets.has(s.id));

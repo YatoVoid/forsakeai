@@ -235,15 +235,57 @@ describe('sentence-at-a-time mode', () => {
     expect(serialize(doc)).toBe('Plain opener. This matters at 40% scale. Another solid idea.');
   });
 
-  it('retries a failed sentence once with the reason, then keeps the original', async () => {
+  it('retries a failed sentence with the reason, then keeps the original', async () => {
     const { doc } = setup('This is pivotal at 40% scale.');
     const engine = sentenceEngine((req, call) => {
-      if (call === 1) expect(req.user).toContain('previous answer was rejected');
+      if (call > 0) expect(req.user).toContain('previous answer was rejected');
       return 'This matters a lot.';
     });
     await rewriteDoc(doc, engine, opts());
-    expect(engine.calls).toBe(2);
+    expect(engine.calls).toBe(3);
     expect(doc.blocks[0]!.sentences[0]!.status).toBe('kept');
+  });
+
+  it('asks again while a stock phrase is left, and keeps the cleanest answer', async () => {
+    const { doc } = setup('This robust plan is a testament to the team.');
+    const replies = ['This robust plan shows what the team can do.', 'This plan shows what the team can do.'];
+    const engine = sentenceEngine((req, call) => {
+      if (call === 1) expect(req.user).toContain('it still says "robust"');
+      return replies[call]!;
+    });
+    await rewriteDoc(doc, engine, opts());
+    expect(engine.calls).toBe(2);
+    expect(serialize(doc)).toBe('This plan shows what the team can do.');
+  });
+
+  it('keeps a partial fix when no answer clears every stock phrase', async () => {
+    const { doc } = setup('This robust plan is a testament to the team.');
+    const engine = sentenceEngine(() => 'This robust plan shows what the team can do.');
+    await rewriteDoc(doc, engine, opts());
+    expect(engine.calls).toBe(3);
+    expect(serialize(doc)).toBe('This robust plan shows what the team can do.');
+  });
+
+  it('rejects answers the meaning scorer marks as different, or closer to a neighbour', async () => {
+    const { doc } = setup('Our team ships weekly. This pivotal release fixes the login bug. Support hours stay the same.');
+    const replies = ['Support hours do not change.', 'Lunch is at noon.', 'This release fixes the login bug.'];
+    const engine = sentenceEngine((_req, call) => replies[call]!);
+    const meaning = {
+      similarity: async (text: string, others: string[]) =>
+        others.map((o) => (text.startsWith('Support') && o.startsWith('Support') ? 0.9 : text.startsWith('Lunch') ? 0.2 : 0.8)),
+    };
+    await rewriteDoc(doc, engine, { ...opts(), meaning });
+    expect(engine.calls).toBe(3);
+    expect(serialize(doc)).toBe('Our team ships weekly. This release fixes the login bug. Support hours stay the same.');
+  });
+
+  it('caps the reply length for one sentence', async () => {
+    const { doc } = setup('This is pivotal.');
+    let cap: number | undefined;
+    const engine = sentenceEngine((req) => ((cap = req.maxTokens), 'This matters.'));
+    await rewriteDoc(doc, engine, opts());
+    expect(cap).toBeGreaterThanOrEqual(96);
+    expect(cap).toBeLessThan(400);
   });
 });
 

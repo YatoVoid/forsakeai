@@ -2,6 +2,8 @@ export interface CompletionRequest {
   system: string;
   user: string;
   signal: AbortSignal;
+  /** Upper bound on generated tokens. Engines that run small models honour it; API engines ignore it. */
+  maxTokens?: number;
   /** Called with the running count of generated characters. */
   onProgress?: (chars: number) => void;
 }

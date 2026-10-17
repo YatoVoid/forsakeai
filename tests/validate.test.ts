@@ -126,3 +126,13 @@ describe('stock phrasing in rewrites', () => {
     expect(validateRewrite('This is a pivotal idea.', 'This idea is still pivotal.', 'eng', eng)).toEqual([]);
   });
 });
+
+describe('stock words and the meaning check', () => {
+  it('does not count flagged stock words as meaning the rewrite must keep', () => {
+    const original = "In today's rapidly evolving professional landscape, remote work has emerged as a transformative force reshaping how organizations operate.";
+    const rewrite = 'Remote work now shapes how organizations run their day, far more than anyone expected.';
+    const stock = ["In today's rapidly evolving professional landscape", 'has emerged as a', 'transformative'];
+    expect(validateRewrite(original, rewrite, 'eng', () => 'eng')).toContain('changed the meaning');
+    expect(validateRewrite(original, rewrite, 'eng', () => 'eng', [], { stock })).toEqual([]);
+  });
+});

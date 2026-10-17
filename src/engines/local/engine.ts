@@ -85,7 +85,7 @@ export async function loadLocalEngine(
         const stream = await active.chat.completions.create({
           stream: true,
           temperature: 0.6,
-          max_tokens: 1200,
+          max_tokens: req.maxTokens ?? 1200,
           messages: [
             { role: 'system', content: req.system },
             { role: 'user', content: req.user },

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowRight, Monitor, Moon, Pencil, Sun, X } from '@lucide/svelte';
+  import { ArrowRight, FilePlus2, Monitor, Moon, Pencil, Sun, X } from '@lucide/svelte';
   import { onMount, tick } from 'svelte';
   import Manuscript from '../editor/Manuscript.svelte';
   import SettingsDialog from '../engines/SettingsDialog.svelte';
@@ -27,7 +27,7 @@
 
   const showDoc = $derived(session.phase !== 'empty' && session.doc !== null);
   const reviewable = $derived(session.phase === 'review' || session.phase === 'done' || session.phase === 'paused');
-  const workingIds = $derived(session.phase === 'running' && session.selectedId ? [session.selectedId] : []);
+  const workingIds = $derived(session.phase === 'running' && session.workingId ? [session.workingId] : []);
   const langLabel = $derived(session.doc ? languageName(session.doc.lang) : '');
   const words = $derived(session.input.trim() ? session.input.trim().split(/\s+/).length : 0);
 
@@ -59,7 +59,7 @@
   }
 
   $effect(() => {
-    const id = session.selectedId;
+    const id = session.workingId;
     if (session.phase !== 'running' || !id) return;
     void tick().then(() => page?.querySelector<HTMLElement>(`[data-id="${id}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
   });
@@ -156,6 +156,13 @@
     void session.clean();
   }
 
+  function newText() {
+    const rewritten = session.doc?.blocks.some((b) => b.sentences.some((s) => s.status === 'rewritten'));
+    if (rewritten && !confirm('Start a new text? The rewrites on this one will be cleared. Copy them first if you need them.')) return;
+    session.startOver();
+    void tick().then(() => textarea?.focus());
+  }
+
   const TIP_KEY = 'plainhand.review-tip';
 
   function dismissTip() {
@@ -245,6 +252,9 @@
         <div class="bar-left">
           <button class="btn" onclick={() => session.editDraft()} disabled={session.phase === 'running'} title="Back to the text box, with every change so far applied">
             <Pencil class="icon" aria-hidden="true" /> Edit text
+          </button>
+          <button class="btn" onclick={newText} disabled={session.phase === 'running'}>
+            <FilePlus2 class="icon" aria-hidden="true" /> New text
           </button>
           <div class="view" role="radiogroup" aria-label="Show">
             <button role="radio" aria-checked={view === 'changes'} class:on={view === 'changes'} onclick={() => (view = 'changes')}>Changes</button>

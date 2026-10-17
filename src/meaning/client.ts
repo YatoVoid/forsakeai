@@ -4,6 +4,8 @@ import { MEANING_MODEL, type MeaningRequest, type MeaningResponse } from './prot
 let worker: Worker | null = null;
 let loading: Promise<MeaningScorer> | null = null;
 let nextId = 0;
+/** The latest caller's listener; an earlier run that was paused stops hearing progress. */
+let report: (loadedMB: number, totalMB: number) => void = () => {};
 
 export async function isMeaningCached(): Promise<boolean> {
   try {
@@ -34,13 +36,14 @@ function scorerFor(w: Worker): MeaningScorer {
 
 /** Loads the embedding model once per page. Rejects if it can't download; callers fall back to the word check. */
 export function loadMeaning(onProgress: (loadedMB: number, totalMB: number) => void): Promise<MeaningScorer> {
+  report = onProgress;
   if (loading) return loading;
   const w = new Worker(new URL('./meaning.worker.ts', import.meta.url), { type: 'module' });
   const ortBase = new URL(`${import.meta.env.BASE_URL}ort/`, location.origin).href;
   loading = new Promise<MeaningScorer>((resolve, reject) => {
     const onMessage = (e: MessageEvent<MeaningResponse>) => {
       const m = e.data;
-      if (m.type === 'download') onProgress(m.loaded / 2 ** 20, m.total / 2 ** 20);
+      if (m.type === 'download') report(m.loaded / 2 ** 20, m.total / 2 ** 20);
       else if (m.type === 'ready' || m.type === 'error') {
         w.removeEventListener('message', onMessage);
         w.removeEventListener('error', onError);

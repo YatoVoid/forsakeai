@@ -136,3 +136,17 @@ describe('stock words and the meaning check', () => {
     expect(validateRewrite(original, rewrite, 'eng', () => 'eng', [], { stock })).toEqual([]);
   });
 });
+
+describe('names joined by punctuation', () => {
+  it('treats "Va" as known when the original says "D.Va"', () => {
+    const original = 'D.Va stands out as the most adaptable tank across every map and game mode.';
+    expect(validateRewrite(original, 'On every map and in every mode, D.Va is the most flexible tank.', 'eng', () => 'eng')).toEqual([]);
+  });
+});
+
+describe('possessive names', () => {
+  it('accepts "Va\'s" when the original has "D.Va’s"', () => {
+    const original = 'D.Va’s hybrid kit of mitigation, burst damage and mobility makes her the best all-around tank pick.';
+    expect(validateRewrite(original, "Thanks to D.Va's mix of mitigation, burst damage and mobility, she is the best all-around tank pick.", 'eng', () => 'eng')).toEqual([]);
+  });
+});

@@ -119,9 +119,13 @@ export function toBcp47(lang: string): string {
   return ISO3_TO_BCP47[lang] ?? 'en';
 }
 
+/** "synergy.Why" — text pasted from rich editors loses the space after a period. Initials like "D.Va" stay whole. */
+const GLUED = /(?<=\p{Ll}{2}[.!?])(?=\p{Lu}\p{Ll})/u;
+
 export function splitSentences(body: string, lang: string): Array<{ text: string; trailing: string }> {
   const parts: Array<{ text: string; trailing: string }> = [];
-  for (const { segment } of segmenter(lang).segment(body)) {
+  const segments = [...segmenter(lang).segment(body)].flatMap(({ segment }) => segment.split(GLUED));
+  for (const segment of segments) {
     const m = /\s*$/.exec(segment)!;
     const text = segment.slice(0, m.index);
     const trailing = m[0];

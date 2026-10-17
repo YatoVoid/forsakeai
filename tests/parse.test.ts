@@ -86,3 +86,11 @@ describe('parse', () => {
     expect(serialize(doc)).toBe('Original text here.');
   });
 });
+
+describe('glued sentences', () => {
+  it('splits "synergy.Why" but keeps initials like "D.Va" whole', async () => {
+    const { splitSentences } = await import('../src/pipeline/parse');
+    const parts = splitSentences('She is rarely a bad pick for team synergy.Why other tanks fall short is simple. D.Va wins.', 'eng').map((p) => p.text);
+    expect(parts).toEqual(['She is rarely a bad pick for team synergy.', 'Why other tanks fall short is simple.', 'D.Va wins.']);
+  });
+});

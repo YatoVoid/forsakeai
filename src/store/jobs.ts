@@ -1,3 +1,4 @@
+import type { RewriteScope } from '../pipeline/run';
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { Register } from '../pipeline/prompt';
 import type { Doc } from '../pipeline/types';
@@ -15,6 +16,7 @@ export interface Job {
   input: string;
   doc: Doc;
   register: Register;
+  scope?: RewriteScope;
   status: JobStatus;
   engine?: EngineChoice;
   chunksTotal: number;

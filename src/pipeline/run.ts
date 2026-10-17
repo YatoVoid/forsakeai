@@ -3,7 +3,7 @@ import { EngineError, type Engine } from '../engines/types';
 import { chunkDoc, estimateTokens, isStiff, type Chunk } from './chunk';
 import { buildPrompt, buildSentencePrompt, parseResponse, parseSentenceResponse, type BuiltPrompt, type PassMode, type Register } from './prompt';
 import { protect, unprotect } from './protect';
-import type { Doc, Sentence } from './types';
+import type { Block, Doc, Sentence } from './types';
 import { stockDiff, validateRewrite, type LangDetect } from './validate';
 import type { VoiceProfile } from './voice';
 
@@ -24,14 +24,22 @@ export interface RunOptions {
   voice?: VoiceProfile | null;
   /** Embedding check for sentence mode. Without it, meaning is judged by word overlap. */
   meaning?: MeaningScorer | null;
+  /** 'stiff' rewrites flagged sentences; 'all' rewrites every prose sentence. Default 'stiff'. */
+  scope?: RewriteScope;
   /** Re-check rewrites with the rule list and send leftovers back once. Default on. */
   audit?: boolean;
   maxTransientRetries?: number;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
+export type RewriteScope = 'stiff' | 'all';
+
 export interface RunCallbacks {
   onPass?(mode: PassMode, chunks: Chunk[]): void;
+  /** Sentence mode is about to work on this sentence. */
+  onSentenceStart?(id: string, mode: PassMode): void;
+  /** One target sentence finished, whatever the outcome. */
+  onSentenceDone?(id: string, mode: PassMode): void | Promise<void>;
   onChunkStart?(chunk: Chunk, mode: PassMode): void;
   onChunkDone?(chunk: Chunk, outcome: ChunkOutcome, mode: PassMode): void | Promise<void>;
   onProgress?(chars: number): void;
@@ -54,6 +62,17 @@ export function indexDoc(doc: Doc): Index {
   const map: Index = new Map();
   for (const b of doc.blocks) for (const s of b.sentences) map.set(s.id, { sentence: s, lang: b.lang });
   return map;
+}
+
+/**
+ * Blocks a whole-text rewrite may touch. A short line without closing
+ * punctuation is a title pasted as plain text, not prose.
+ */
+export function isProse(b: Block): boolean {
+  if (b.kind !== 'paragraph' && b.kind !== 'list-item') return false;
+  if (b.sentences.length !== 1) return true;
+  const text = b.sentences[0]!.text.trim();
+  return /[.!?…]["”’')\]]*$/.test(text) || text.split(/\s+/).length > 12;
 }
 
 const rewriteDone = (s: Sentence) => s.status === 'rewritten' || s.status === 'kept';
@@ -161,9 +180,18 @@ export async function runChunk(
   const base = { register: opts.register, lang, voice: opts.voice, mode };
 
   if (engine.granularity === 'sentence') {
-    const final = new Map<string, TargetResult>();
-    for (const id of chunk.targets) final.set(id, await rewriteSentence(chunk, id, index, engine, opts, cb, base));
-    return applyResults(chunk, lookup, final, mode);
+    // Each sentence is applied as soon as it's done, so a pause keeps it.
+    const total: ChunkOutcome = { rewritten: 0, kept: 0 };
+    for (const id of chunk.targets) {
+      if (isChunkDone({ ...chunk, targets: [id] }, index, mode)) continue;
+      cb.onSentenceStart?.(id, mode);
+      const result = await rewriteSentence(chunk, id, index, engine, opts, cb, base);
+      const outcome = applyResults({ ...chunk, targets: [id] }, lookup, new Map([[id, result]]), mode);
+      total.rewritten += outcome.rewritten;
+      total.kept += outcome.kept;
+      await cb.onSentenceDone?.(id, mode);
+    }
+    return total;
   }
 
   const first = buildPrompt(chunk, lookup, base);
@@ -188,6 +216,7 @@ export async function runChunk(
     }
   }
 
+  for (const id of chunk.targets) cb.onSentenceDone?.(id, mode);
   return applyResults(chunk, lookup, final, mode);
 }
 
@@ -355,7 +384,9 @@ export async function rewriteDoc(doc: Doc, engine: Engine, opts: RunOptions, cb:
   // Finished sentences stay as context; only unfinished ones become targets.
   // Chunk boundaries shift as rewrites change lengths, so this can't rely on
   // whole chunks being done.
-  const main = chunkDoc(doc, (s) => isStiff(s) && !rewriteDone(s));
+  const prose = new Set(doc.blocks.filter(isProse).flatMap((b) => b.sentences.map((s) => s.id)));
+  const wanted = (s: Sentence) => (opts.scope === 'all' ? prose.has(s.id) && !!s.text && !s.edited : isStiff(s));
+  const main = chunkDoc(doc, (s) => wanted(s) && !rewriteDone(s));
   cb.onPass?.('rewrite', main);
   await runQueue(main, index, engine, opts, cb, 'rewrite');
 

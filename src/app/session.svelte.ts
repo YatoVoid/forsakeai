@@ -1,5 +1,5 @@
 import { createByokEngine, providerInfo, type ByokConfig } from '../engines/byok/providers';
-import { isModelCached, loadLocalEngine, requestPersistence, type LoadProgress } from '../engines/local/engine';
+import { isModelCached, loadLocalEngine, requestPersistence, unloadLocalEngine, type LoadProgress } from '../engines/local/engine';
 import { LOCAL_MODELS, type LocalModel } from '../engines/local/models';
 import { probeDevice, type ProbeResult } from '../engines/local/probe';
 import { EngineError, type Engine } from '../engines/types';
@@ -8,7 +8,7 @@ import { applyDialect, type Dialect } from '../pipeline/dialect';
 import { parse, proposedText, serialize } from '../pipeline/parse';
 import type { PassMode, Register } from '../pipeline/prompt';
 import { rulePass, type RulePassSummary } from '../pipeline/rulepass';
-import { indexDoc, isChunkDone, rewriteDoc, type MeaningScorer } from '../pipeline/run';
+import { indexDoc, isChunkDone, isProse, rewriteDoc, type MeaningScorer, type RewriteScope } from '../pipeline/run';
 import { MEANING_DOWNLOAD_MB } from '../meaning/protocol';
 import type { Doc, Sentence } from '../pipeline/types';
 import type { LangDetect } from '../pipeline/validate';
@@ -66,8 +66,15 @@ export class Session {
   doc = $state<Doc | null>(null);
   summary = $state<RulePassSummary | null>(null);
   register = $state<Register>('keep');
+  scope = $state<RewriteScope>('stiff');
+  /** Target sentences in the current run, for the progress bar. */
+  sentencesTotal = $state(0);
+  sentencesDone = $state(0);
+  stopping = $state(false);
   status = $state<Status>({ text: '', fraction: null, tone: 'quiet' });
   selectedId = $state<string | null>(null);
+  /** The sentence the model is on right now; separate from the reader's selection. */
+  workingId = $state<string | null>(null);
   probe = $state<ProbeResult | null>(null);
   localModel = $state<LocalModel>(LOCAL_MODELS[0]!);
   localCached = $state(false);
@@ -98,22 +105,27 @@ export class Session {
     return n;
   });
 
+  private waiting(scope: RewriteScope): Sentence[] {
+    if (!this.doc) return [];
+    const out: Sentence[] = [];
+    for (const b of this.doc.blocks) {
+      if (scope === 'all' && !isProse(b)) continue;
+      for (const s of b.sentences) {
+        if (!s.text || s.edited || s.status === 'rewritten' || s.status === 'kept') continue;
+        if (scope === 'all' || s.stiff) out.push(s);
+      }
+    }
+    return out;
+  }
+
   /** Stiff sentences the model hasn't handled yet. */
-  remaining = $derived.by(() => {
-    if (!this.doc) return 0;
-    let n = 0;
-    for (const b of this.doc.blocks) for (const s of b.sentences) if (s.stiff && s.text && s.status !== 'rewritten' && s.status !== 'kept') n++;
-    return n;
-  });
+  stiffLeft = $derived(this.waiting('stiff').length);
+  /** Every prose sentence the model hasn't handled yet. */
+  allLeft = $derived(this.waiting('all').length);
+  remaining = $derived(this.scope === 'all' ? this.allLeft : this.stiffLeft);
 
   /** Words in the sentences still waiting for a rewrite, for time estimates. */
-  remainingWords = $derived.by(() => {
-    if (!this.doc) return 0;
-    let n = 0;
-    for (const b of this.doc.blocks)
-      for (const s of b.sentences) if (s.stiff && s.text && s.status !== 'rewritten' && s.status !== 'kept') n += s.text.split(/\s+/).length;
-    return n;
-  });
+  remainingWords = $derived(this.waiting(this.scope).reduce((n, s) => n + s.text.split(/\s+/).length, 0));
 
   paragraphsChanged = $derived.by(() => {
     if (!this.doc) return 0;
@@ -169,6 +181,8 @@ export class Session {
       chunksTotal: 0,
       chunksDone: 0,
     };
+    // Text with no stock phrases can still read as generated; offer the whole text then.
+    this.scope = this.waiting('stiff').length ? 'stiff' : 'all';
     this.phase = 'review';
     this.say('', null, 'quiet');
   }
@@ -223,15 +237,24 @@ export class Session {
     this.lastEngine = choice;
     this.job.engine = choice;
     this.job.register = this.register;
+    this.job.scope = this.scope;
     this.phase = 'running';
+    this.stopping = false;
+    this.sentencesTotal = 0;
+    this.sentencesDone = 0;
     this.controller = new AbortController();
     const signal = this.controller.signal;
 
     let engine: Engine;
     try {
-      engine = await makeEngine();
+      engine = await untilAborted(makeEngine(), signal);
     } catch (err) {
-      this.fail(err);
+      if (err instanceof EngineError && err.code === 'aborted') {
+        if (choice.kind === 'local') unloadLocalEngine();
+        this.pauseState();
+      } else {
+        this.fail(err);
+      }
       return;
     }
 
@@ -241,10 +264,15 @@ export class Session {
     if (engine.granularity === 'sentence') {
       try {
         const { loadMeaning } = await import('../meaning/client');
-        meaning = await loadMeaning((mb, total) => {
-          const all = total || MEANING_DOWNLOAD_MB;
-          this.say(`Downloading the meaning check · ${Math.round(mb)} / ${Math.round(all)} MB · only once`, Math.min(1, mb / all), 'working');
-        });
+        meaning = await untilAborted(
+          loadMeaning((mb, total) => {
+            if (signal.aborted) return;
+            // The small config files report first; show sizes once the model file is counted.
+            const all = total > 10 ? total : MEANING_DOWNLOAD_MB;
+            this.say(`Downloading the meaning check · ${Math.round(mb)} / ${Math.round(all)} MB · only once`, Math.min(1, mb / all), 'working');
+          }),
+          signal,
+        );
       } catch {
         meaning = null;
       }
@@ -260,23 +288,23 @@ export class Session {
     await this.persist();
 
     const render = () => {
-      if (Date.now() < waitingUntil) return;
+      if (Date.now() < waitingUntil || this.stopping) return;
       const left = this.chunksTotal - this.chunksDone;
       const wps = pace.wordsPerSec();
       const eta = pace.etaMs(left, engine.concurrency);
       const last = pace.lastTokenAt();
-      const where = current ? `passage ${Math.min(this.chunksDone + 1, this.chunksTotal)} of ${this.chunksTotal}` : '';
+      const where = current && this.sentencesTotal ? `sentence ${Math.min(this.sentencesDone + 1, this.sentencesTotal)} of ${this.sentencesTotal}` : '';
       const stalled = engine.kind === 'local' && last !== null && performance.now() - last > HEARTBEAT_MS;
       if (stalled) {
         const secs = Math.round((performance.now() - last!) / 1000);
-        this.say(`Still working. Your GPU is busy on a long passage, nothing is stuck · ${secs} s`, this.fraction(), 'working');
+        this.say(`Still working. Your GPU is busy on a long sentence, nothing is stuck · ${secs} s`, this.fraction(), 'working');
         return;
       }
       const parts = [pass === 'audit' ? 'Checking the rewrites' : 'Rewriting', where];
       if (wps) parts.push(`${Math.round(wps)} words/sec`);
       if (eta) parts.push(`~${formatDuration(eta)} left`);
       this.say(parts.filter(Boolean).join(' · '), this.fraction(), 'working');
-      document.title = `(${this.chunksDone}/${this.chunksTotal}) ${APP_TITLE}`;
+      document.title = `(${this.sentencesDone}/${this.sentencesTotal}) ${APP_TITLE}`;
     };
 
     this.heartbeat = setInterval(render, 1000);
@@ -286,10 +314,16 @@ export class Session {
       await rewriteDoc(
         this.doc,
         engine,
-        { register: this.register, signal, detect: await this.lang(), voice: this.register === 'sample' ? this.voice : null, meaning },
+        { register: this.register, scope: this.scope, signal, detect: await this.lang(), voice: this.register === 'sample' ? this.voice : null, meaning },
         {
           onPass: (mode, chunks) => {
             pass = mode;
+            const targets = chunks.flatMap((c) => c.targets).filter((id) => {
+              const s = index.get(id)?.sentence;
+              return s && (mode === 'audit' ? !s.audited : s.status !== 'rewritten' && s.status !== 'kept');
+            }).length;
+            this.sentencesTotal = (mode === 'rewrite' ? 0 : this.sentencesDone) + targets;
+            if (mode === 'rewrite') this.sentencesDone = 0;
             const done = chunks.filter((c) => isChunkDone(c, index, mode)).length;
             if (mode === 'rewrite') {
               this.chunksTotal = chunks.length;
@@ -304,9 +338,15 @@ export class Session {
             current = chunk;
             started.set(mode + chunk.index, performance.now());
             pace.chunkStarted();
-            this.selectedId = chunk.targets[0] ?? null;
+            this.workingId = chunk.targets[0] ?? null;
           },
           onProgress: (chars) => pace.progress(chars),
+          onSentenceStart: (id) => (this.workingId = id),
+          onSentenceDone: async () => {
+            this.sentencesDone++;
+            render();
+            await this.persist();
+          },
           onWait: (ms, err) => {
             waitingUntil = Date.now() + ms;
             const secs = Math.ceil(ms / 1000);
@@ -331,15 +371,21 @@ export class Session {
       if (err instanceof EngineError && err.code === 'aborted') this.pauseState();
       else this.fail(err);
     } finally {
+      this.workingId = null;
       this.stopTimers();
     }
   }
 
   private fraction(): number | null {
+    if (this.sentencesTotal) return this.sentencesDone / this.sentencesTotal;
     return this.chunksTotal ? this.chunksDone / this.chunksTotal : null;
   }
 
+  /** Stops at once while loading; mid-sentence the model is interrupted and the sentence stays as it was. */
   pause(): void {
+    if (this.phase !== 'running' || this.stopping) return;
+    this.stopping = true;
+    this.say('Pausing…', this.fraction(), 'working');
     this.controller?.abort();
   }
 
@@ -360,15 +406,17 @@ export class Session {
   }
 
   private pauseState(): void {
+    this.stopping = false;
     this.phase = 'paused';
     if (this.job) this.job.status = 'paused';
     void this.persist();
-    this.say(`Paused at passage ${this.chunksDone + 1} of ${this.chunksTotal}. Finished passages are kept.`, this.fraction(), 'quiet');
+    this.say(`Paused. ${this.remaining} ${this.remaining === 1 ? 'sentence' : 'sentences'} left; finished ones are kept.`, this.fraction(), 'quiet');
     document.title = APP_TITLE;
     this.releaseLock();
   }
 
   private fail(err: unknown): void {
+    this.stopping = false;
     this.phase = 'paused';
     if (this.job) this.job.status = 'paused';
     void this.persist();
@@ -419,6 +467,7 @@ export class Session {
     this.doc = job.doc;
     this.input = job.input;
     this.register = job.register;
+    this.scope = job.scope ?? 'stiff';
     this.lastEngine = job.engine ?? null;
     this.chunksTotal = job.chunksTotal;
     this.chunksDone = job.chunksDone;
@@ -426,7 +475,7 @@ export class Session {
     this.phase = 'paused';
     const ref = this.firstUnfinished();
     this.say(
-      `You left mid-edit. Picking up at passage ${job.chunksDone + 1} of ${job.chunksTotal}.`,
+      `You left mid-edit. ${this.remaining} ${this.remaining === 1 ? 'sentence' : 'sentences'} still to rewrite.`,
       this.fraction(),
       'quiet',
     );
@@ -582,4 +631,14 @@ export class Session {
   say(text: string, fraction: number | null, tone: Status['tone']): void {
     this.status = { text, fraction, tone };
   }
+}
+
+/** Lets Pause stop the wait for a slow load. The load itself may finish in the background. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new EngineError('aborted', 'Stopped'));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new EngineError('aborted', 'Stopped'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
 }

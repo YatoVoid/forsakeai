@@ -95,13 +95,32 @@
         </p>
 
         {#if phase === 'running'}
-          <div class="progress" role="progressbar" aria-label="Rewrite progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? 0}>
-            <div class="fill" style:transform="scaleX({(percent ?? 0) / 100})"></div>
+          <div
+            class="progress"
+            class:busy={!percent}
+            role="progressbar"
+            aria-label="Rewrite progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent || undefined}
+          >
+            <div class="fill" style:transform={percent ? `scaleX(${percent / 100})` : undefined}></div>
           </div>
         {/if}
         <p class="status" class:error={session.status.tone === 'error'} aria-live="polite">{session.status.text}</p>
 
-        {#if phase === 'review' && left > 0}
+        {#if phase === 'review' && session.allLeft > 0}
+          <div class="scope" role="radiogroup" aria-label="What to rewrite">
+            <button role="radio" aria-checked={session.scope === 'stiff'} disabled={!session.stiffLeft} onclick={() => (session.scope = 'stiff')}>
+              Stiff sentences <span>{session.stiffLeft}</span>
+            </button>
+            <button role="radio" aria-checked={session.scope === 'all'} onclick={() => (session.scope = 'all')}>
+              Every sentence <span>{session.allLeft}</span>
+            </button>
+          </div>
+          {#if session.scope === 'all'}
+            <p class="scope-note">Stock phrases are only part of what makes text read as generated. This changes more of your wording and takes longer.</p>
+          {/if}
           <button class="btn btn-primary wide" onclick={onRewrite}>Rewrite {plural(left, 'sentence', 'sentences')} <ArrowRight class="icon" aria-hidden="true" /></button>
           <p class="engine">
             {#if prefs.mode === 'device'}<Laptop class="icon" aria-hidden="true" />{:else}<KeyRound class="icon" aria-hidden="true" />{/if}
@@ -109,7 +128,7 @@
             <button class="link" onclick={() => onSettings(false)}>{prefs.chosen ? 'Change' : 'Choose'}</button>
           </p>
         {:else if phase === 'running'}
-          <button class="btn wide" onclick={() => session.pause()}><Pause class="icon" aria-hidden="true" /> Pause</button>
+          <button class="btn wide" onclick={() => session.pause()} disabled={session.stopping}><Pause class="icon" aria-hidden="true" /> {session.stopping ? 'Pausing…' : 'Pause'}</button>
           <label class="check">
             <input type="checkbox" checked={session.notifyWhenDone} onchange={(e) => session.setNotify(e.currentTarget.checked)} />
             Notify me when it’s done
@@ -119,6 +138,15 @@
           <p class="engine"><SlidersHorizontal class="icon" aria-hidden="true" /><span>{engineLabel}</span><button class="link" onclick={() => onSettings(false)}>Change</button></p>
         {:else}
           <button class="btn btn-primary wide" onclick={onCopy}><ClipboardCopy class="icon" aria-hidden="true" /> {copied ? 'Copied' : 'Copy the text'}</button>
+          {#if phase === 'done' && session.allLeft > 0}
+            <button
+              class="btn wide"
+              onclick={() => {
+                session.scope = 'all';
+                onRewrite();
+              }}>Rewrite the other {plural(session.allLeft, 'sentence', 'sentences')} too</button
+            >
+          {/if}
         {/if}
 
         {#if selected && !open}
@@ -138,7 +166,7 @@
         {#if selected}
           <SentenceCard
             sentence={selected}
-            working={phase === 'running' && session.selectedId === selected.id}
+            working={phase === 'running' && session.workingId === selected.id}
             canEdit={phase !== 'running'}
             onDecide={(d) => session.decide(selected.id, d)}
             onEdit={(text) => session.editSentence(selected.id, text)}
@@ -303,6 +331,71 @@
     background: var(--accent);
     transform-origin: left;
     transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Nothing finished yet: a moving segment shows the model is working. */
+  .busy .fill {
+    width: 30%;
+    animation: busy 1.4s ease-in-out infinite;
+  }
+
+  @keyframes busy {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(340%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .busy .fill {
+      animation: none;
+      width: 100%;
+      opacity: 0.35;
+    }
+  }
+
+  .scope {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 2px;
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--radius);
+  }
+
+  .scope button {
+    min-height: 2.75rem;
+    padding: 0.3rem 0.6rem;
+    border: 0;
+    border-radius: 2px;
+    background: none;
+    font-size: var(--t-sm);
+    font-weight: 600;
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+
+  .scope button span {
+    font-weight: 400;
+    margin-left: 0.25em;
+  }
+
+  .scope button[aria-checked='true'] {
+    background: var(--ink);
+    color: var(--page);
+  }
+
+  .scope button:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+
+  .scope-note {
+    margin: 0;
+    font-size: var(--t-xs);
+    line-height: 1.5;
+    color: var(--ink-2);
   }
 
   .status {

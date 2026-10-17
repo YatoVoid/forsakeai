@@ -81,8 +81,11 @@ export function validateRewrite(
   if (/\d/.test(stripTokens(rewrite))) reasons.push('changed or added a number');
 
   if (!SKIP_NAME_CHECK.has(lang)) {
-    const known = new Set(words(stripTokens(original)).map((w) => w.toLowerCase().replace(/[^\p{L}\p{M}'’-]/gu, '')));
-    const added = capitalizedNames(rewrite).filter((n) => !known.has(n.toLowerCase()) && n !== 'I');
+    // Split on anything that isn't a letter, so "D.Va" in the original covers "Va" in the rewrite.
+    const known = new Set(stripTokens(original).toLowerCase().split(/[^\p{L}\p{M}'’-]+/u).filter(Boolean));
+    const bare = (w: string) => w.toLowerCase().replace(/['’]s$/, '');
+    const knownBare = new Set([...known].map(bare));
+    const added = capitalizedNames(rewrite).filter((n) => !knownBare.has(bare(n)) && n !== 'I');
     if (added.length) reasons.push(`added a name (${added.slice(0, 2).join(', ')})`);
   }
 

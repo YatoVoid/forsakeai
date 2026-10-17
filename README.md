@@ -17,7 +17,9 @@ It does not promise any detector score, and no tool honestly can.
 
 **Small models get one sentence at a time.** On-device models and local servers (Qwen 2.5 1.5B and smaller) can't follow the tagged passage format; in testing, a 1.5B model rewrote 0 of 7 sentences that way. They get a one-sentence prompt with only the previous sentence as context, because given the following sentence too they often rewrote that one instead. Each sentence gets up to three tries. Every answer that passes validation is kept, and the one with the fewest leftover stock phrases wins, then the one closest in meaning. Replies are capped at about twice the sentence's length in tokens.
 
-**Meaning check.** Word overlap can't tell a paraphrase from a different claim, so small-model rewrites are also compared with the original using a multilingual sentence embedding ([paraphrase-multilingual-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2), Apache 2.0, 118 MB int8, run in a worker on WASM). A rewrite under 0.62 cosine similarity, or closer to a neighbouring sentence than to its own, is rejected. If the model can't download, the word-overlap check runs instead. Stock words the rules flagged don't count toward the overlap, since removing them is the point. On the test essay, this took a 1.5B model from 6 of 13 stiff sentences rewritten to 11 of 13 (`scripts/eval-rewrite.ts`). It catches rewrites that change the subject; it doesn't catch small invented details.
+**Meaning check.** Word overlap can't tell a paraphrase from a different claim, so small-model rewrites are also compared with the original using a multilingual sentence embedding ([paraphrase-multilingual-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2), Apache 2.0, 129 MB with tokenizer, run in a worker on WASM). A rewrite under 0.62 cosine similarity, or closer to a neighbouring sentence than to its own, is rejected. If the model can't download, the word-overlap check runs instead. Stock words the rules flagged don't count toward the overlap, since removing them is the point. On the test essay, this took a 1.5B model from 6 of 13 stiff sentences rewritten to 11 of 13 (`scripts/eval-rewrite.ts`). It catches rewrites that change the subject; it doesn't catch small invented details.
+
+**Rewrite scope.** By default only sentences the rules flag are sent to the model. "Every sentence" sends all prose (not headings, title lines or sentences you edited by hand). Text with no stock phrases starts on that setting.
 
 **Voice matching.** Choose "Like my writing sample" and paste 300 to 1,000 words of your own writing. Plainhand measures sentence length, contractions, person, punctuation habits and word length, and sends that description plus about 120 words of excerpts with each passage. The whole sample would not fit in a small on-device model's context.
 
@@ -81,6 +83,7 @@ node tests/e2e/resume.mjs http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/long.mjs   http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/phase2.mjs http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/firstrun.mjs http://localhost:4173/plainhand/ /path/to/chromium
+node tests/e2e/pause.mjs    http://localhost:4173/plainhand/ /path/to/chromium   # needs the slow stub on 8788
 node tests/e2e/essay.mjs essay.md out/ http://127.0.0.1:8790/v1 Qwen2.5-1.5B-Instruct   # needs scripts/local-llm-server.mjs
 ```
 
@@ -105,6 +108,7 @@ node --import ./scripts/ts-register.mjs scripts/eval-rewrite.ts essay.md http://
 - Landing pages localize their intro and sample; the rest of the interface is English.
 - Not built yet: the AI-likelihood checker, comparison pages, email capture, and the hosted Fast mode.
 - Rewrites appear one passage at a time, not word by word.
+- **On-device models don't move AI detectors.** On a 370-word AI text, rewriting every sentence with Qwen 2.5 1.5B left the Binoculars score flat (0.994 to 1.002), and a user's third-party detector read 77.5% before and after with both Qwen and Llama 3.2 3B. Gemini Flash through an API key took the same detector from 77.5% to 45% by rewriting two sentences. Small models also invent details in domain-heavy text.
 
 ## License
 

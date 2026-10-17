@@ -1,6 +1,6 @@
 /** Multilingual sentence embeddings (Apache-2.0), used to check that a rewrite kept its meaning. */
 export const MEANING_MODEL = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2';
-export const MEANING_DOWNLOAD_MB = 118;
+export const MEANING_DOWNLOAD_MB = 129;
 
 export type MeaningRequest =
   | { type: 'load'; ortBase: string }

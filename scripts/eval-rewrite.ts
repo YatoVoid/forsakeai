@@ -1,7 +1,7 @@
 // Runs the rewrite pipeline on a document against an OpenAI-compatible server and
 // reports what happened to every stiff sentence.
 // Usage: node --import ./scripts/ts-register.mjs scripts/eval-rewrite.ts <file.md> [baseUrl] [model] [out.json]
-// NO_MEANING=1 skips the embedding check and falls back to word overlap.
+// NO_MEANING=1 skips the embedding check and falls back to word overlap. SCOPE=all rewrites every sentence.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createByokEngine } from '../src/engines/byok/providers';
 import type { Engine } from '../src/engines/types';
@@ -45,10 +45,10 @@ if (!process.env.NO_MEANING) {
 }
 
 const started = performance.now();
-await rewriteDoc(doc, engine, { register: 'keep', signal: new AbortController().signal, detect: detectLang, meaning });
+await rewriteDoc(doc, engine, { register: 'keep', scope: process.env.SCOPE === 'all' ? 'all' : 'stiff', signal: new AbortController().signal, detect: detectLang, meaning });
 const seconds = (performance.now() - started) / 1000;
 
-const sentences = doc.blocks.flatMap((b) => b.sentences).filter((s) => s.stiff);
+const sentences = doc.blocks.flatMap((b) => b.sentences).filter((s) => s.stiff || process.env.SCOPE === 'all');
 const rows = sentences.map((s) => ({ status: s.status, text: s.text, rewrite: s.rewrite, note: s.note }));
 for (const r of rows) {
   console.log(`\n[${r.status}] ${r.text}`);

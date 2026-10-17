@@ -51,17 +51,24 @@ export async function loadLocalEngine(
 
   if (!engine || loadedId !== id) {
     worker?.terminate();
-    worker = new Worker(new URL('./llm.worker.ts', import.meta.url), { type: 'module' });
+    const w = new Worker(new URL('./llm.worker.ts', import.meta.url), { type: 'module' });
+    worker = w;
     try {
-      engine = await webllm.CreateWebWorkerMLCEngine(worker, id, {
+      const loaded = await webllm.CreateWebWorkerMLCEngine(w, id, {
         initProgressCallback: (r) => onProgress(parseProgress(r)),
       });
+      // Pause during the load unloads it; don't resurrect a terminated worker.
+      if (worker !== w) throw new EngineError('aborted', 'Stopped');
+      engine = loaded;
       loadedId = id;
     } catch (err) {
-      worker.terminate();
-      worker = null;
-      engine = null;
-      loadedId = null;
+      w.terminate();
+      if (err instanceof EngineError) throw err;
+      if (worker === w) {
+        worker = null;
+        engine = null;
+        loadedId = null;
+      }
       const message = err instanceof Error ? err.message : String(err);
       if (/quota/i.test(message)) {
         throw new EngineError('bad-request', 'Not enough browser storage for the model. Free some space or use an API key.');
@@ -93,6 +100,7 @@ export async function loadLocalEngine(
         });
         let text = '';
         for await (const part of stream) {
+          if (req.signal.aborted) break;
           text += part.choices[0]?.delta?.content ?? '';
           req.onProgress?.(text.length);
         }

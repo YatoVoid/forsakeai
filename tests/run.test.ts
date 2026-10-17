@@ -297,3 +297,68 @@ describe('parseSentenceResponse', () => {
     expect(parseSentenceResponse('   ')).toBeUndefined();
   });
 });
+
+describe('rewrite scope', () => {
+  it("'all' sends every prose sentence, skips headings and the reader's own edits, and reports each one", async () => {
+    const { doc } = setup('## Plain heading\n\nFirst plain sentence. Second plain sentence. Third plain sentence.');
+    const third = doc.blocks[1]!.sentences[2]!;
+    third.edited = true;
+    third.status = 'rewritten';
+    third.rewrite = 'Mine.';
+    const asked: string[] = [];
+    const done: string[] = [];
+    const engine = Object.assign(
+      fakeEngine((req) => {
+        const m = /^Sentence to rewrite: (.*)$/m.exec(req.user)!;
+        asked.push(m[1]!);
+        return m[1]!.replace('plain', 'simple');
+      }),
+      { granularity: 'sentence' as const },
+    );
+    await rewriteDoc(doc, engine, { ...opts(), scope: 'all' }, { onSentenceDone: (id) => void done.push(id) });
+    expect(asked).toEqual(['First plain sentence.', 'Second plain sentence.']);
+    expect(done).toHaveLength(2);
+    expect(serialize(doc)).toBe('## Plain heading\n\nFirst simple sentence. Second simple sentence. Mine.');
+  });
+});
+
+describe('pausing in sentence mode', () => {
+  it('keeps sentences finished before the pause, and a rerun skips them', async () => {
+    const { doc } = setup('One pivotal idea. Two pivotal ideas. Three pivotal ideas.');
+    const controller = new AbortController();
+    const engine = Object.assign(
+      fakeEngine((req) => {
+        const m = /^Sentence to rewrite: (.*)$/m.exec(req.user)![1]!;
+        if (m.startsWith('Two')) controller.abort();
+        if (req.signal.aborted) throw new EngineError('aborted', 'Stopped');
+        return m.replace('pivotal', 'big');
+      }),
+      { granularity: 'sentence' as const },
+    );
+    await expect(rewriteDoc(doc, engine, { ...opts(), signal: controller.signal })).rejects.toThrow('Stopped');
+    const [one, two] = doc.blocks[0]!.sentences;
+    expect(one!.rewrite).toBe('One big idea.');
+    expect(two!.status).not.toBe('rewritten');
+
+    const asked: string[] = [];
+    const again = Object.assign(
+      fakeEngine((req) => {
+        const m = /^Sentence to rewrite: (.*)$/m.exec(req.user)![1]!;
+        asked.push(m);
+        return m.replace('pivotal', 'big');
+      }),
+      { granularity: 'sentence' as const },
+    );
+    await rewriteDoc(doc, again, opts());
+    expect(asked).toEqual(['Two pivotal ideas.', 'Three pivotal ideas.']);
+    expect(serialize(doc)).toBe('One big idea. Two big ideas. Three big ideas.');
+  });
+});
+
+describe('isProse', () => {
+  it('skips short title lines pasted without Markdown', async () => {
+    const { isProse } = await import('../src/pipeline/run');
+    const { doc } = setup('The Universal Contender: D.Va\n\nShe works on every map. Her kit is flexible.\n\nOne line that ends with a period.');
+    expect(doc.blocks.filter((b) => b.kind !== 'blank').map(isProse)).toEqual([false, true, true]);
+  });
+});

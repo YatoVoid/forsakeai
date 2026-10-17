@@ -69,7 +69,7 @@ export function buildPrompt(
   const notes = targets.map((t) => {
     const s = lookup(t.sentenceId)!;
     const flags = opts.mode === 'audit' ? (s.auditFlags ?? []) : s.flags;
-    const issues = [...new Set(flags.filter((f) => !f.fixed).map((f) => `${f.note.toLowerCase()}: "${f.match}"`))];
+    const issues = [...new Set(flags.filter((f) => !f.fixed).map((f) => (f.match ? `${f.note.toLowerCase()}: "${f.match}"` : f.note.toLowerCase())))];
     return `${t.key}: ${issues.join('; ') || 'reads stiff'}`;
   });
 

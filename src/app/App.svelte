@@ -3,6 +3,7 @@
   import Manuscript from '../editor/Manuscript.svelte';
   import MarginNote from '../editor/MarginNote.svelte';
   import EnginePanel from '../engines/EnginePanel.svelte';
+  import CheckerPanel from '../detector/CheckerPanel.svelte';
   import StatusLine from '../status/StatusLine.svelte';
   import { download, type ExportFormat } from '../export/export';
   import { languageName } from '../pipeline/prompt';
@@ -223,6 +224,8 @@
           </div>
         {/if}
 
+        <CheckerPanel {session} />
+
         <Manuscript doc={session.doc} selectedId={session.selectedId} activeIds={workingIds} onSelect={(id) => (session.selectedId = id)} />
 
         <div class="toolbar">
@@ -230,6 +233,9 @@
           <button class="btn" onclick={() => exportAs('docx')}>Download .docx</button>
           <button class="btn" onclick={() => exportAs('md')}>.md</button>
           <button class="btn" onclick={() => exportAs('txt')}>.txt</button>
+          {#if session.checkerEnabled}
+            <button class="btn" onclick={() => session.startCheck()} disabled={session.phase === 'running' || session.check.kind === 'working'}>Check it</button>
+          {/if}
           {#if session.doc.lang === 'eng'}
             <label class="spelling">
               <span>Spelling</span>

@@ -28,6 +28,23 @@ Each finished chunk is saved to IndexedDB. Reloading mid-job offers to resume, a
 
 WebGPU ships by default in Chrome and Edge, Safari 26+, and Firefox on Windows and macOS. Firefox on Linux doesn't have it yet; those users get the API-key path.
 
+## Checker (behind a flag)
+
+Add `?checker` to the URL to see the **Check it** button. It estimates how likely a text is to be AI-generated with [Binoculars](https://arxiv.org/abs/2401.12070), using Qwen2.5-0.5B as observer and Qwen2.5-0.5B-Instruct as performer, run in a worker through Transformers.js. WebGPU uses the 4-bit builds (about 970 MB). Without WebGPU it falls back to the int8 builds over WASM (about 1 GB, slower), so it also works in browsers that can't run the rewriter.
+
+Results show as a range ("Likely human-written · 12–24% AI-likelihood"), a confidence level and the three sentences that read most machine-like, each with **Rewrite this one**. The range comes from a logistic fit per language and model build, widened for short texts. Languages without calibration data are labelled "not tested" with low confidence.
+
+Calibration and the benchmark are reproducible:
+
+```sh
+node scripts/detector-score.mjs sample.jsonl int8 384 > scores-int8.jsonl     # Node, CPU
+node scripts/detector-calibrate.mjs wasm=scores-int8.jsonl webgpu=scores-q4f16.jsonl
+```
+
+`detector-calibrate.mjs` writes `src/detector/calibration.json` and `docs/detector-benchmark.md`. The plan's gate (lower false-positive rate than ZeroGPT) hasn't been checked; the flag stays until it is.
+
+ONNX Runtime's WASM files ship with the site under `/ort/` because the CSP blocks CDN and `blob:` scripts.
+
 ## Pages
 
 The build writes the editor at `/`, a landing page per language at `/de/`, `/es/`, `/fr/` and `/pt/` (localized title, description, intro, placeholder and sample, with hreflang links), `/privacy.html`, and `sitemap.xml`. Set `SITE_URL` if the site moves off `https://yatovoid.github.io/plainhand`.

@@ -1,7 +1,7 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Plugin, ResolvedConfig } from 'vite';
-import { LANGUAGE_PAGES } from '../src/pages/languages';
+import { LANGUAGE_PAGES } from '../src/pages/languages.ts';
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 /** Keeps the JSON from closing its script tag early. */
@@ -36,6 +36,7 @@ export function languagePages(siteUrl: string): Plugin {
       return html.replace('</head>', `    <link rel="canonical" href="${site}/" />\n    ${alternates()}\n  </head>`);
     },
     closeBundle() {
+      if (config.build.ssr) return;
       const out = join(config.root, config.build.outDir);
       const shell = readFileSync(join(out, 'index.html'), 'utf8').replace(/\s*<link rel="(?:canonical|alternate)"[^>]*>/g, '');
 
@@ -58,6 +59,37 @@ export function languagePages(siteUrl: string): Plugin {
         join(out, 'sitemap.xml'),
         `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `  <url><loc>${u}</loc></url>`).join('\n')}\n</urlset>\n`,
       );
+    },
+  };
+}
+
+const ORT_FILES = ['ort-wasm-simd-threaded.asyncify.mjs', 'ort-wasm-simd-threaded.asyncify.wasm'];
+
+/**
+ * Serves ONNX Runtime's WASM build from our own origin under /ort/. The
+ * checker can't load it from a CDN or a blob: URL because of the CSP.
+ */
+export function ortAssets(root: string): Plugin {
+  const dist = join(root, 'node_modules/onnxruntime-web/dist');
+  let config: ResolvedConfig;
+  return {
+    name: 'plainhand-ort-assets',
+    configResolved(c) {
+      config = c;
+    },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const name = req.url?.split('?')[0]?.split('/ort/')[1];
+        if (!name || !ORT_FILES.includes(name)) return next();
+        res.setHeader('content-type', name.endsWith('.wasm') ? 'application/wasm' : 'text/javascript');
+        res.end(readFileSync(join(dist, name)));
+      });
+    },
+    closeBundle() {
+      if (config.command !== 'build' || config.build.ssr) return;
+      const out = join(config.root, config.build.outDir, 'ort');
+      mkdirSync(out, { recursive: true });
+      for (const f of ORT_FILES) copyFileSync(join(dist, f), join(out, f));
     },
   };
 }

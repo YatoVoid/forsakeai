@@ -13,9 +13,22 @@ import { indexDoc, isChunkDone, rewriteDoc } from '../pipeline/run';
 import type { Doc, Sentence } from '../pipeline/types';
 import { buildVoiceProfile, type VoiceProfile } from '../pipeline/voice';
 import { formatDuration, Pace } from '../status/eta';
+import { isCheckerCached, loadChecker, pickDevice, runChecker, downloadMB } from '../detector/client';
+import type { DetectorDevice } from '../detector/protocol';
+import { present, type Calibration, type Presentation } from '../detector/present';
+import calibration from '../detector/calibration.json';
+import { languageName } from '../pipeline/prompt';
+import { sentenceText } from '../pipeline/parse';
 import { claimJob, deleteJob, latestUnfinishedJob, newJobId, pruneJobs, saveJob, type EngineChoice, type Job } from '../store/jobs';
 
 export type Phase = 'empty' | 'review' | 'running' | 'paused' | 'done';
+
+export type CheckState =
+  | { kind: 'idle' }
+  | { kind: 'confirm'; device: DetectorDevice; mb: number }
+  | { kind: 'working' }
+  | { kind: 'done'; result: Presentation; langName: string; quotes: Array<{ id: string; text: string }> }
+  | { kind: 'error'; message: string };
 
 export interface Status {
   text: string;
@@ -61,6 +74,8 @@ export class Session {
   notifyWhenDone = $state(false);
   chunksTotal = $state(0);
   chunksDone = $state(0);
+  check = $state<CheckState>({ kind: 'idle' });
+  readonly checkerEnabled = typeof location !== 'undefined' && new URLSearchParams(location.search).has('checker');
   voiceSample = $state(readStored(VOICE_KEY));
   dialect = $state<Dialect>((readStored(DIALECT_KEY) as Dialect) || 'as-written');
 
@@ -405,6 +420,68 @@ export class Session {
     if (!this.doc) return undefined;
     for (const b of this.doc.blocks) for (const s of b.sentences) if (s.stiff && s.status !== 'rewritten' && s.status !== 'kept') return s;
     return undefined;
+  }
+
+  async startCheck(): Promise<void> {
+    if (!this.doc || this.phase === 'running') return;
+    const device = await pickDevice();
+    if (await isCheckerCached(device)) await this.runCheck(device);
+    else this.check = { kind: 'confirm', device, mb: downloadMB(device) };
+  }
+
+  cancelCheck(): void {
+    this.check = { kind: 'idle' };
+  }
+
+  async runCheck(device: DetectorDevice): Promise<void> {
+    if (!this.doc) return;
+    this.check = { kind: 'working' };
+    try {
+      this.say('Loading the checker…', null, 'working');
+      await loadChecker(device, (p) => {
+        if (p.phase === 'download' && p.totalMB > 0) {
+          this.say(
+            `Downloading the checker · ${Math.round(p.loadedMB).toLocaleString()} / ${Math.round(p.totalMB).toLocaleString()} MB · only once`,
+            p.loadedMB / p.totalMB,
+            'working',
+          );
+        }
+      });
+      const sentences = this.doc.blocks
+        .filter((b) => b.editable)
+        .flatMap((b) => b.sentences.map((s) => ({ id: s.id, text: sentenceText(s) ? sentenceText(s) + s.trailing : '' })))
+        .filter((s) => s.text.trim());
+      const raw = await runChecker(sentences, (p) => {
+        if (p.phase === 'scoring') this.say(`Checking · part ${p.done} of ${p.total}`, p.done / p.total, 'working');
+      });
+      const langName = languageName(this.doc.lang);
+      const result = present({ ...raw, lang: this.doc.lang }, calibration as Calibration, langName);
+      if (!result) throw new Error('The checker has no calibration for this setup.');
+      const quotes = result.drivers.map((id) => ({ id, text: this.find(id) ? sentenceText(this.find(id)!) : '' }));
+      this.check = { kind: 'done', result, langName, quotes };
+      this.say('Checked.', null, 'quiet');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.check = { kind: 'error', message: `The checker failed: ${message}` };
+      this.say(this.check.message, null, 'error');
+    }
+  }
+
+  markForRewrite(id: string): void {
+    const s = this.find(id);
+    if (!s) return;
+    s.stiff = true;
+    s.audited = false;
+    s.auditFlags = undefined;
+    s.decision = undefined;
+    if (s.status === 'rewritten' && s.rewrite !== undefined) s.text = s.rewrite;
+    s.rewrite = undefined;
+    s.status = s.text === s.source ? 'clean' : 'fixed';
+    s.flags = [...s.flags, { ruleId: 'checker', category: 'filler', start: -1, end: -1, match: '', note: 'Reads machine-like to the checker', fixed: false }];
+    this.check = { kind: 'idle' };
+    this.selectedId = id;
+    if (this.phase === 'done') this.phase = 'review';
+    void this.persist();
   }
 
   setVoiceSample(text: string): void {

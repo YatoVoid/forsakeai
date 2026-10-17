@@ -6,7 +6,8 @@
     "types": ["node"],
     "strict": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
   "include": ["vite.config.ts", "scripts/pages-plugin.ts", "src/pages/languages.ts"]
 }

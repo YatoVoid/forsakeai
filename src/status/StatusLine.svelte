@@ -16,7 +16,7 @@
     aria-valuenow={percent ?? undefined}
   >
     {#if percent !== null}
-      <div class="fill" style:width="{percent}%"></div>
+      <div class="fill" style:transform="scaleX({percent / 100})"></div>
     {/if}
   </div>
   <p class="line" class:error={status.tone === 'error'} aria-live="polite">{status.text}</p>
@@ -39,7 +39,8 @@
   .fill {
     height: 2px;
     background: var(--pencil);
-    transition: width 300ms ease-out;
+    transform-origin: left;
+    transition: transform 300ms ease-out;
   }
 
   .line {

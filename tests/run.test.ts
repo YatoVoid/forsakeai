@@ -193,3 +193,24 @@ describe('voice profile in prompts', () => {
     expect(seen!.user).toContain("Lines from the author's own writing");
   });
 });
+
+describe('targets after a partial run', () => {
+  it('never sends an already rewritten sentence back, even when chunks regroup', async () => {
+    const { doc } = setup('First pivotal point. Second pivotal point. Third pivotal point.');
+    const [a, b, c] = doc.blocks[0]!.sentences;
+    a!.status = 'rewritten';
+    a!.rewrite = 'First point.';
+    a!.audited = true;
+    let user = '';
+    const engine = fakeEngine((req) => {
+      user = req.user;
+      return 'S1: Second point.\nS2: Third point.';
+    });
+    await rewriteDoc(doc, engine, opts());
+    expect(user).not.toContain('<S3>');
+    expect(user).toContain('First point.');
+    expect(b!.rewrite).toBe('Second point.');
+    expect(c!.rewrite).toBe('Third point.');
+    expect(a!.rewrite).toBe('First point.');
+  });
+});

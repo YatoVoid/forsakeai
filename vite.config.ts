@@ -2,7 +2,7 @@ import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { fileURLToPath } from 'node:url';
-import { languagePages } from './scripts/pages-plugin';
+import { languagePages, ortAssets } from './scripts/pages-plugin.ts';
 
 const SITE_URL = process.env.SITE_URL ?? 'https://yatovoid.github.io/plainhand';
 
@@ -49,7 +49,7 @@ function contentSecurityPolicy(): Plugin {
 
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
-  plugins: [svelte(), contentSecurityPolicy(), languagePages(SITE_URL)],
+  plugins: [svelte(), contentSecurityPolicy(), languagePages(SITE_URL), ortAssets(fileURLToPath(new URL('.', import.meta.url)))],
   worker: { format: 'es' },
   build: {
     target: 'es2023',

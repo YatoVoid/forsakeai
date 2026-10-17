@@ -1,6 +1,6 @@
 import { runRules } from '../engines/rules/run';
 import { EngineError, type Engine } from '../engines/types';
-import { chunkDoc, type Chunk } from './chunk';
+import { chunkDoc, isStiff, type Chunk } from './chunk';
 import { buildPrompt, parseResponse, type BuiltPrompt, type PassMode, type Register } from './prompt';
 import { protect, unprotect } from './protect';
 import type { Doc, Sentence } from './types';
@@ -241,7 +241,10 @@ async function runQueue(
  */
 export async function rewriteDoc(doc: Doc, engine: Engine, opts: RunOptions, cb: RunCallbacks = {}): Promise<void> {
   const index = indexDoc(doc);
-  const main = chunkDoc(doc);
+  // Finished sentences stay as context; only unfinished ones become targets.
+  // Chunk boundaries shift as rewrites change lengths, so this can't rely on
+  // whole chunks being done.
+  const main = chunkDoc(doc, (s) => isStiff(s) && !rewriteDone(s));
   cb.onPass?.('rewrite', main);
   await runQueue(main, index, engine, opts, cb, 'rewrite');
 

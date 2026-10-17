@@ -45,7 +45,7 @@
   {#if open.length}
     <ul>
       {#each unique(open) as f (f.ruleId + f.match)}
-        <li><span class="quote">{f.match}</span> {f.note.toLowerCase()}</li>
+        <li>{#if f.match}<span class="quote">{f.match}</span> {f.note.toLowerCase()}{:else}{f.note}{/if}</li>
       {/each}
     </ul>
   {/if}

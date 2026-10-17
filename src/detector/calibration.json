@@ -1,0 +1,104 @@
+{
+  "created": "2026-10-17",
+  "noise": 0.687,
+  "builds": {
+    "wasm": {
+      "arb": {
+        "slope": 12.948,
+        "midpoint": 0.8731,
+        "auc": 0.887,
+        "aiBelow": 0.8052,
+        "humanAbove": 0.9431,
+        "humanCleared": 0.176,
+        "falsePositiveRate": 0,
+        "truePositiveRate": 0.333,
+        "humanTexts": 34,
+        "aiTexts": 40
+      },
+      "bul": {
+        "slope": 39.999,
+        "midpoint": 0.9379,
+        "auc": 0.898,
+        "aiBelow": 0.9045,
+        "humanAbove": 0.9571,
+        "humanCleared": 0.737,
+        "falsePositiveRate": 0,
+        "truePositiveRate": 0.214,
+        "humanTexts": 40,
+        "aiTexts": 35
+      },
+      "cmn": {
+        "slope": 36.126,
+        "midpoint": 0.8313,
+        "auc": 0.929,
+        "aiBelow": 0.8167,
+        "humanAbove": 0.8222,
+        "humanCleared": 0.882,
+        "falsePositiveRate": 0.118,
+        "truePositiveRate": 0.9,
+        "humanTexts": 37,
+        "aiTexts": 39
+      },
+      "deu": {
+        "slope": 6.666,
+        "midpoint": 0.8654,
+        "auc": 0.618,
+        "aiBelow": 0.8087,
+        "humanAbove": 0.9318,
+        "humanCleared": 0.03,
+        "falsePositiveRate": 0.03,
+        "truePositiveRate": 0.226,
+        "humanTexts": 65,
+        "aiTexts": 64
+      },
+      "eng": {
+        "slope": 23.902,
+        "midpoint": 0.8313,
+        "auc": 0.854,
+        "aiBelow": 0.7699,
+        "humanAbove": 0.89,
+        "humanCleared": 0.437,
+        "falsePositiveRate": 0.056,
+        "truePositiveRate": 0.486,
+        "humanTexts": 150,
+        "aiTexts": 150
+      },
+      "ind": {
+        "slope": 41.94,
+        "midpoint": 0.8688,
+        "auc": 0.754,
+        "aiBelow": 0.8379,
+        "humanAbove": 0.8875,
+        "humanCleared": 0.4,
+        "falsePositiveRate": 0.2,
+        "truePositiveRate": 0.5,
+        "humanTexts": 38,
+        "aiTexts": 33
+      },
+      "rus": {
+        "slope": -11.756,
+        "midpoint": 0.8493,
+        "auc": 0.208,
+        "aiBelow": 0.7414,
+        "humanAbove": 0.9241,
+        "humanCleared": 0,
+        "falsePositiveRate": 0.158,
+        "truePositiveRate": 0,
+        "humanTexts": 35,
+        "aiTexts": 40
+      },
+      "urd": {
+        "slope": 39.497,
+        "midpoint": 0.8665,
+        "auc": 0.856,
+        "aiBelow": 0.8403,
+        "humanAbove": 0.8948,
+        "humanCleared": 0.385,
+        "falsePositiveRate": 0.077,
+        "truePositiveRate": 0.625,
+        "humanTexts": 27,
+        "aiTexts": 30
+      }
+    }
+  }
+}

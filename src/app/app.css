@@ -1,0 +1,192 @@
+:root {
+  --paper: #f6f2ea;
+  --paper-sunk: #efe9dd;
+  --ink: #1c1b19;
+  --ink-soft: #5b574f;
+  --rule: #d9d2c4;
+  --pencil: #c2401c;
+  --pencil-wash: rgb(194 64 28 / 0.09);
+  --insert: #2f6b45;
+  --insert-wash: rgb(47 107 69 / 0.1);
+  --focus: #1f5fbf;
+
+  --serif: 'Newsreader Variable', 'Iowan Old Style', Georgia, serif;
+  --sans: 'Instrument Sans', system-ui, sans-serif;
+  --mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+
+  /* 18px base, 1.25 ratio */
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.5625rem;
+  --step-3: 1.953rem;
+
+  --measure: 68ch;
+  --rail: 15rem;
+  --radius: 4px;
+  --gutter: 16px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --paper: #1a1916;
+    --paper-sunk: #23211d;
+    --ink: #ece7dd;
+    --ink-soft: #a8a196;
+    --rule: #34322d;
+    --pencil: #e2673f;
+    --pencil-wash: rgb(226 103 63 / 0.14);
+    --insert: #7fbf93;
+    --insert-wash: rgb(127 191 147 / 0.12);
+    --focus: #8ab4ff;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --paper: #1a1916;
+  --paper-sunk: #23211d;
+  --ink: #ece7dd;
+  --ink-soft: #a8a196;
+  --rule: #34322d;
+  --pencil: #e2673f;
+  --pencil-wash: rgb(226 103 63 / 0.14);
+  --insert: #7fbf93;
+  --insert-wash: rgb(127 191 147 / 0.12);
+  --focus: #8ab4ff;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 112.5%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--step--1);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.45em 0.9em;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.btn:hover {
+  background: var(--paper-sunk);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--pencil);
+  border-color: var(--pencil);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: color-mix(in srgb, var(--pencil) 88%, black);
+}
+
+.btn-quiet {
+  border-color: transparent;
+  padding-inline: 0.5em;
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 0.2em;
+}
+
+.btn-quiet:hover {
+  background: none;
+  text-decoration-color: currentColor;
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  padding: 0 0.3em;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.field > span {
+  color: var(--ink-soft);
+}
+
+.input {
+  width: 100%;
+  padding: 0.45em 0.6em;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
+.input:focus {
+  border-color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -73,8 +73,8 @@ export const STATUS_LABEL: Record<EntryStatus, string> = {
   removed: 'Removed',
   'to-rewrite': 'To rewrite',
   rewritten: 'Rewritten',
-  kept: 'Kept',
-  undone: 'Undone',
+  kept: 'Left as written',
+  undone: 'Restored',
 };
 
 /** Real entries from the rule library, shown on the empty sheet so the first screen demonstrates the product. */

@@ -30,6 +30,7 @@
     "@types/node": "24.19.0",
     "@webgpu/types": "0.1.74",
     "fake-indexeddb": "6.2.5",
+    "happy-dom": "20.14.5",
     "playwright-core": "1.63.0",
     "svelte": "5.57.1",
     "svelte-check": "4.7.6",

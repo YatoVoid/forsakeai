@@ -56,12 +56,41 @@
       onSelect(selectedId === id ? null : id);
     }
   }
+
+  /**
+   * Clicks between lines, in a line's gap or past its end land on the
+   * paragraph, not on a sentence. Those go to the closest sentence box.
+   */
+  function sentenceAt(e: MouseEvent): string | null {
+    const target = e.target as HTMLElement;
+    const hit = target.closest<HTMLElement>('[data-id]');
+    if (hit) return hit.dataset.id ?? null;
+    const block = target.closest<HTMLElement>('p, .h');
+    if (!block) return null;
+    let best: { id: string; d: number } | null = null;
+    for (const el of block.querySelectorAll<HTMLElement>('[data-id]')) {
+      for (const r of el.getClientRects()) {
+        const dx = Math.max(r.left - e.clientX, 0, e.clientX - r.right);
+        const dy = Math.max(r.top - e.clientY, 0, e.clientY - r.bottom);
+        const d = dx * dx + dy * dy * 4;
+        if (!best || d < best.d) best = { id: el.dataset.id!, d };
+      }
+    }
+    return best?.id ?? null;
+  }
+
+  function onClick(e: MouseEvent) {
+    // Leave text selection alone.
+    if (window.getSelection()?.toString()) return;
+    const id = sentenceAt(e);
+    if (id) onSelect(selectedId === id ? null : id);
+  }
 </script>
 
 {#snippet sentence(s: Sentence)}
   {@const proposed = proposedText(s)}
   {@const changed = proposed !== s.source}
-  {#if view === 'clean'}{#if sentenceText(s)}<span class="s">{sentenceText(s)}</span>{s.trailing}{/if}{:else if !interactive(s)}<span class="s">{s.source}</span>{s.trailing}{:else}<span
+  {#if view === 'clean'}{#if sentenceText(s)}<span class="s" class:selected={selectedId === s.id} data-id={s.id}>{sentenceText(s)}</span>{s.trailing}{/if}{:else if !interactive(s)}<span class="s plain" class:selected={selectedId === s.id} data-id={s.id}>{s.source}</span>{s.trailing}{:else}<span
       class="s mark"
       class:selected={selectedId === s.id}
       class:working={active.has(s.id)}
@@ -70,16 +99,17 @@
       role="button"
       tabindex="0"
       aria-pressed={selectedId === s.id}
-      onclick={() => onSelect(selectedId === s.id ? null : s.id)}
       onkeydown={(e) => onKey(e, s.id)}
-    >{#if changed && s.decision === 'rejected'}<span class="undone">{s.source}</span>{:else if changed && s.decision === 'accepted'}{proposed}{:else if changed}{#each wordDiff(s.source, proposed) as part, i (i)}{#if part.op === 'delete'}<del class="removed">{part.text}</del>{:else if part.op === 'insert'}<ins class="added">{part.text}</ins>{:else}{part.text}{/if}{/each}{#if !proposed}<span class="visually-hidden">(sentence removed)</span>{/if}{:else}{#each flagged(s) as seg, i (i)}{#if seg.flag}<span class="stiff" title={seg.flag}>{seg.text}</span>{:else}{seg.text}{/if}{/each}{/if}</span>{s.trailing}{/if}
+    >{#if changed && s.decision === 'rejected'}<span class="undone">{s.source}</span>{:else if changed && (s.decision === 'accepted' || s.edited)}{proposed}{:else if changed}{#each wordDiff(s.source, proposed) as part, i (i)}{#if part.op === 'delete'}<del class="removed">{part.text}</del>{:else if part.op === 'insert'}<ins class="added">{part.text}</ins>{:else}{part.text}{/if}{/each}{#if !proposed}<span class="visually-hidden">(sentence removed)</span>{/if}{:else}{#each flagged(s) as seg, i (i)}{#if seg.flag}<span class="stiff" title={seg.flag}>{seg.text}</span>{:else}{seg.text}{/if}{/each}{/if}</span>{s.trailing}{/if}
 {/snippet}
 
 {#snippet sentences(b: Block)}
   {#each b.sentences as s (s.id)}{@render sentence(s)}{/each}
 {/snippet}
 
-<article class="manuscript">
+<!-- Sentences carry their own keyboard handling; the article only routes stray clicks. -->
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+<article class="manuscript" onclick={onClick}>
   {#each doc.blocks as b (b.id)}
     {#if b.kind === 'heading'}
       <svelte:element this={`h${headingLevel(b)}`} class="h">{@render sentences(b)}</svelte:element>
@@ -176,13 +206,17 @@
     margin: 2em 0;
   }
 
-  .mark {
+  .manuscript p,
+  .manuscript .h {
     cursor: pointer;
+  }
+
+  .s {
     border-radius: 2px;
     transition: background-color 120ms;
   }
 
-  .mark:hover {
+  .s:hover {
     background: var(--sheet);
   }
 

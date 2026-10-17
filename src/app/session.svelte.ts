@@ -8,7 +8,8 @@ import { applyDialect, type Dialect } from '../pipeline/dialect';
 import { parse, proposedText, serialize } from '../pipeline/parse';
 import type { PassMode, Register } from '../pipeline/prompt';
 import { rulePass, type RulePassSummary } from '../pipeline/rulepass';
-import { indexDoc, isChunkDone, rewriteDoc } from '../pipeline/run';
+import { indexDoc, isChunkDone, rewriteDoc, type MeaningScorer } from '../pipeline/run';
+import { MEANING_DOWNLOAD_MB } from '../meaning/protocol';
 import type { Doc, Sentence } from '../pipeline/types';
 import type { LangDetect } from '../pipeline/validate';
 import { buildVoiceProfile, type VoiceProfile } from '../pipeline/voice';
@@ -234,6 +235,21 @@ export class Session {
       return;
     }
 
+    // Small models drift in meaning, so their rewrites get an embedding check.
+    // If it can't download, the word-overlap check still runs.
+    let meaning: MeaningScorer | null = null;
+    if (engine.granularity === 'sentence') {
+      try {
+        const { loadMeaning } = await import('../meaning/client');
+        meaning = await loadMeaning((mb, total) => {
+          const all = total || MEANING_DOWNLOAD_MB;
+          this.say(`Downloading the meaning check · ${Math.round(mb)} / ${Math.round(all)} MB · only once`, Math.min(1, mb / all), 'working');
+        });
+      } catch {
+        meaning = null;
+      }
+    }
+
     const index = indexDoc(this.doc);
     const pace = new Pace();
     const started = new Map<string, number>();
@@ -270,7 +286,7 @@ export class Session {
       await rewriteDoc(
         this.doc,
         engine,
-        { register: this.register, signal, detect: await this.lang(), voice: this.register === 'sample' ? this.voice : null },
+        { register: this.register, signal, detect: await this.lang(), voice: this.register === 'sample' ? this.voice : null, meaning },
         {
           onPass: (mode, chunks) => {
             pass = mode;
@@ -535,6 +551,21 @@ export class Session {
     const s = this.find(id);
     if (!s || proposedText(s) === s.source) return;
     s.decision = s.decision === decision ? undefined : decision;
+    void this.persist();
+  }
+
+  /** The reader's own wording. It counts as done, so later rewrites skip it. */
+  editSentence(id: string, text: string): void {
+    const s = this.find(id);
+    if (!s || this.phase === 'running') return;
+    const next = text.replace(/\s+/g, ' ').trim();
+    if (next === sentenceText(s)) return;
+    s.rewrite = next;
+    s.status = 'rewritten';
+    s.edited = true;
+    s.audited = true;
+    s.decision = undefined;
+    s.note = undefined;
     void this.persist();
   }
 

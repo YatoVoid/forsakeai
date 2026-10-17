@@ -26,6 +26,8 @@ export interface Sentence {
   auditFlags?: RuleFlag[];
   /** The reader's call on a changed sentence. Unset means the change stands. */
   decision?: 'accepted' | 'rejected';
+  /** The reader typed this sentence themselves; rewrites leave it alone. */
+  edited?: boolean;
   note?: string;
 }
 

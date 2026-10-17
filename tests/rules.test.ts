@@ -25,7 +25,7 @@ describe('runRules', () => {
   });
 
   it('replaces em dashes', () => {
-    expect(runRules('The fix—finally—works.', 'eng').text).toBe('The fix, finally, works.');
+    expect(runRules('The fix—finally—works.', 'eng').text).toBe("The fix (finally) works.");
   });
 
   it('respects word boundaries with accented letters', () => {
@@ -73,5 +73,12 @@ describe('capitalization after removals', () => {
     const doc = parse("It's worth noting that 64% of users leave.", () => 'eng');
     rulePass(doc);
     expect(serialize(doc)).toBe('64% of users leave.');
+  });
+});
+
+describe('paired em dashes', () => {
+  it('turns a short aside into parentheses and a lone dash into a comma', () => {
+    expect(runRules('The tool—once installed—runs on its own.', 'eng').text).toBe('The tool (once installed) runs on its own.');
+    expect(runRules('It works—mostly.', 'eng').text).toBe('It works, mostly.');
   });
 });

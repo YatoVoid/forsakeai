@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { ArrowRight, Monitor, Moon, Sun } from '@lucide/svelte';
+  import { ArrowRight, Monitor, Moon, Pencil, Sun, X } from '@lucide/svelte';
   import { onMount, tick } from 'svelte';
   import Manuscript from '../editor/Manuscript.svelte';
   import SettingsDialog from '../engines/SettingsDialog.svelte';
   import { EnginePrefs } from '../engines/prefs.svelte';
   import { download, type ExportFormat } from '../export/export';
+  import { htmlToMarkdown } from '../lib/paste';
   import { languageName } from '../pipeline/prompt';
   import { proposedText } from '../pipeline/parse';
   import { readPageConfig } from './pageConfig';
@@ -22,6 +23,7 @@
   let copied = $state(false);
   let view = $state<'changes' | 'clean'>('changes');
   let theme = $state<'system' | 'light' | 'dark'>('system');
+  let tipSeen = $state(true);
 
   const showDoc = $derived(session.phase !== 'empty' && session.doc !== null);
   const reviewable = $derived(session.phase === 'review' || session.phase === 'done' || session.phase === 'paused');
@@ -33,6 +35,7 @@
     try {
       const saved = localStorage.getItem('plainhand.theme');
       if (saved === 'light' || saved === 'dark') applyTheme(saved);
+      tipSeen = localStorage.getItem(TIP_KEY) === '1';
     } catch {
       // Theme falls back to the system setting.
     }
@@ -153,6 +156,27 @@
     void session.clean();
   }
 
+  const TIP_KEY = 'plainhand.review-tip';
+
+  function dismissTip() {
+    tipSeen = true;
+    try {
+      localStorage.setItem(TIP_KEY, '1');
+    } catch {
+      // Shown again next visit in private windows.
+    }
+  }
+
+  /** Rich text from chat apps keeps its headings and paragraphs instead of running together. */
+  function onPaste(e: ClipboardEvent) {
+    const html = e.clipboardData?.getData('text/html');
+    const text = html ? htmlToMarkdown(html) : null;
+    if (!text || !textarea) return;
+    e.preventDefault();
+    textarea.setRangeText(text, textarea.selectionStart, textarea.selectionEnd, 'end');
+    session.input = textarea.value;
+  }
+
   function trySample() {
     session.input = pageConfig?.sample ?? SAMPLE;
     textarea?.focus();
@@ -198,8 +222,9 @@
           id="draft"
           bind:this={textarea}
           bind:value={session.input}
-          placeholder={pageConfig?.placeholder ?? 'Paste your draft here. Markdown headings, lists and links are kept.'}
+          placeholder={pageConfig?.placeholder ?? 'Paste your draft here. Headings, lists and links are kept.'}
           spellcheck="true"
+          onpaste={onPaste}
         ></textarea>
         <div class="draft-foot">
           <span class="meta">
@@ -208,11 +233,23 @@
           <button class="btn btn-primary" onclick={cleanUp}>Clean it up <ArrowRight class="icon" aria-hidden="true" /></button>
         </div>
       </div>
+      {#if !pageConfig}
+        <ol class="how" aria-label="How it works">
+          <li><b>Paste and clean it up.</b> Stock phrases like “Furthermore” and “plays a crucial role” are fixed or marked on the spot.</li>
+          <li><b>Check each change.</b> Click any sentence to see why it changed. Accept it, restore your original, or type your own version.</li>
+          <li><b>Rewrite what still reads stiff,</b> on this device or with your own API key. Then copy the text.</li>
+        </ol>
+      {/if}
     {:else if session.doc}
       <div class="doc-bar">
-        <div class="view" role="radiogroup" aria-label="Show">
-          <button role="radio" aria-checked={view === 'changes'} class:on={view === 'changes'} onclick={() => (view = 'changes')}>Changes</button>
-          <button role="radio" aria-checked={view === 'clean'} class:on={view === 'clean'} onclick={() => (view = 'clean')}>Clean copy</button>
+        <div class="bar-left">
+          <button class="btn" onclick={() => session.editDraft()} disabled={session.phase === 'running'} title="Back to the text box, with every change so far applied">
+            <Pencil class="icon" aria-hidden="true" /> Edit text
+          </button>
+          <div class="view" role="radiogroup" aria-label="Show">
+            <button role="radio" aria-checked={view === 'changes'} class:on={view === 'changes'} onclick={() => (view = 'changes')}>Changes</button>
+            <button role="radio" aria-checked={view === 'clean'} class:on={view === 'clean'} onclick={() => (view = 'clean')}>Clean copy</button>
+          </div>
         </div>
         {#if view === 'changes'}
           <p class="legend" aria-label="Key">
@@ -222,6 +259,16 @@
           </p>
         {/if}
       </div>
+      {#if !tipSeen && session.phase === 'review'}
+        <div class="tip" role="note">
+          <p>
+            <b>How to review.</b> <del class="removed">Struck</del> words were removed, <ins class="added">underlined</ins> words were added, and
+            <span class="stiff">wavy</span> ones still read stiff. Click any sentence to see why, accept it, restore your original, or edit it yourself.
+            Then rewrite the rest from the style sheet.
+          </p>
+          <button class="btn btn-ghost" onclick={dismissTip} aria-label="Got it, hide this tip"><X class="icon" aria-hidden="true" /></button>
+        </div>
+      {/if}
       <Manuscript doc={session.doc} {view} selectedId={session.selectedId} activeIds={workingIds} onSelect={(id) => (session.selectedId = id)} />
     {/if}
 
@@ -413,6 +460,51 @@
     margin-bottom: 1.5rem;
     background: var(--page);
     border-bottom: 1px solid var(--rule);
+  }
+
+  .bar-left {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .how {
+    display: grid;
+    gap: 0.6rem;
+    margin: 1.5rem 0 0;
+    padding: 0 0 0 1.25rem;
+    max-width: 62ch;
+    font-size: var(--t-sm);
+    line-height: 1.55;
+    color: var(--ink-2);
+  }
+
+  .how b {
+    color: var(--ink);
+    font-weight: 650;
+  }
+
+  .tip {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 0.5rem 0.75rem 1rem;
+    margin: -0.5rem 0 1.5rem;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    font-size: var(--t-sm);
+    line-height: 1.55;
+  }
+
+  .tip p {
+    margin: 0;
+  }
+
+  .tip .btn {
+    flex: none;
+    min-width: 2.75rem;
+    padding: 0.3rem;
   }
 
   .view {

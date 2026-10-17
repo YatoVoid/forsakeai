@@ -121,12 +121,15 @@
           <button class="btn btn-primary wide" onclick={onCopy}><ClipboardCopy class="icon" aria-hidden="true" /> {copied ? 'Copied' : 'Copy the text'}</button>
         {/if}
 
-        {#if selected && selectedChanged && !open}
+        {#if selected && !open}
           <div class="mini" aria-label="Selected sentence">
-            <span>Selected change</span>
-            <button class="btn" aria-pressed={selected.decision === 'accepted'} onclick={() => session.decide(selected.id, 'accepted')}><Check class="icon" aria-hidden="true" /> Keep</button>
-            <button class="btn" aria-pressed={selected.decision === 'rejected'} onclick={() => session.decide(selected.id, 'rejected')}><Undo2 class="icon" aria-hidden="true" /> Undo</button>
-            <button class="link" onclick={() => (open = true)}>Why</button>
+            {#if selectedChanged}
+              <button class="btn" aria-pressed={selected.decision === 'accepted'} onclick={() => session.decide(selected.id, 'accepted')}><Check class="icon" aria-hidden="true" /> Accept</button>
+              <button class="btn" aria-pressed={selected.decision === 'rejected'} onclick={() => session.decide(selected.id, 'rejected')}><Undo2 class="icon" aria-hidden="true" /> Restore</button>
+            {:else}
+              <span>Sentence selected</span>
+            {/if}
+            <button class="link" onclick={() => (open = true)}>{selectedChanged ? 'Why' : 'Edit'}</button>
           </div>
         {/if}
       </div>
@@ -136,7 +139,9 @@
           <SentenceCard
             sentence={selected}
             working={phase === 'running' && session.selectedId === selected.id}
+            canEdit={phase !== 'running'}
             onDecide={(d) => session.decide(selected.id, d)}
+            onEdit={(text) => session.editSentence(selected.id, text)}
             onClose={() => (session.selectedId = null)}
           />
         {/if}
@@ -185,13 +190,13 @@
 
         <p class="links">
           {#if session.changes && phase !== 'running'}
-            <button class="link" onclick={() => session.decideAll('accepted')}>Keep all</button>
-            <button class="link" onclick={() => session.decideAll('rejected')}>Undo all</button>
+            <button class="link" onclick={() => session.decideAll('accepted')}>Accept all</button>
+            <button class="link" onclick={() => session.decideAll('rejected')}>Restore all originals</button>
           {/if}
-          <button class="link" onclick={() => session.editDraft()} disabled={phase === 'running'}>Edit the draft</button>
+          <button class="link" onclick={() => session.editDraft()} disabled={phase === 'running'}>Edit the text</button>
           <button class="link" onclick={() => session.startOver()} disabled={phase === 'running'}>Start over</button>
         </p>
-        <p class="keys"><kbd>J</kbd><kbd>K</kbd> next and previous · <kbd>A</kbd> keep · <kbd>R</kbd> undo</p>
+        <p class="keys"><kbd>J</kbd><kbd>K</kbd> next and previous · <kbd>A</kbd> accept · <kbd>R</kbd> restore original</p>
       </div>
     {/if}
   </aside>

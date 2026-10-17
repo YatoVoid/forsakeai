@@ -15,7 +15,9 @@ It does not promise any detector score, and no tool honestly can.
 7. **Audit.** The rule list runs again over every rewrite. Deterministic leftovers are fixed in place; rewrites that still read stiff go back to the model once, and a failed audit keeps the first rewrite.
 8. **Spelling (optional).** English documents can be converted to US or UK spelling with a word list, before and after the rewrite.
 
-**Small models get one sentence at a time.** On-device models and local servers (Qwen 2.5 1.5B and smaller) can't follow the tagged passage format; in testing, a 1.5B model rewrote 0 of 7 sentences that way. They get a one-sentence prompt with only the previous sentence as context, because given the following sentence too they often rewrote that one instead. Validation also checks that a rewrite keeps at least a quarter of the original's content words, doesn't resemble a neighbouring sentence more than its own, and doesn't introduce a stock phrase the original didn't have.
+**Small models get one sentence at a time.** On-device models and local servers (Qwen 2.5 1.5B and smaller) can't follow the tagged passage format; in testing, a 1.5B model rewrote 0 of 7 sentences that way. They get a one-sentence prompt with only the previous sentence as context, because given the following sentence too they often rewrote that one instead. Each sentence gets up to three tries. Every answer that passes validation is kept, and the one with the fewest leftover stock phrases wins, then the one closest in meaning. Replies are capped at about twice the sentence's length in tokens.
+
+**Meaning check.** Word overlap can't tell a paraphrase from a different claim, so small-model rewrites are also compared with the original using a multilingual sentence embedding ([paraphrase-multilingual-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2), Apache 2.0, 118 MB int8, run in a worker on WASM). A rewrite under 0.62 cosine similarity, or closer to a neighbouring sentence than to its own, is rejected. If the model can't download, the word-overlap check runs instead. Stock words the rules flagged don't count toward the overlap, since removing them is the point. On the test essay, this took a 1.5B model from 6 of 13 stiff sentences rewritten to 11 of 13 (`scripts/eval-rewrite.ts`). It catches rewrites that change the subject; it doesn't catch small invented details.
 
 **Voice matching.** Choose "Like my writing sample" and paste 300 to 1,000 words of your own writing. Plainhand measures sentence length, contractions, person, punctuation habits and word length, and sends that description plus about 120 words of excerpts with each passage. The whole sample would not fit in a small on-device model's context.
 
@@ -78,7 +80,15 @@ node tests/e2e/flow.mjs   http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/resume.mjs http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/long.mjs   http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/phase2.mjs http://localhost:4173/plainhand/ /path/to/chromium
+node tests/e2e/firstrun.mjs http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/essay.mjs essay.md out/ http://127.0.0.1:8790/v1 Qwen2.5-1.5B-Instruct   # needs scripts/local-llm-server.mjs
+```
+
+The rewrite pipeline also runs headless in Node against any OpenAI-compatible server, printing what happened to each stiff sentence:
+
+```sh
+node scripts/local-llm-server.mjs 8790 onnx-community/Qwen2.5-1.5B-Instruct q4f16 &
+node --import ./scripts/ts-register.mjs scripts/eval-rewrite.ts essay.md http://127.0.0.1:8790/v1 Qwen2.5-1.5B-Instruct out.json
 ```
 
 ## Security

@@ -108,7 +108,7 @@ node --import ./scripts/ts-register.mjs scripts/eval-rewrite.ts essay.md http://
 - Landing pages localize their intro and sample; the rest of the interface is English.
 - Not built yet: the AI-likelihood checker, comparison pages, email capture, and the hosted Fast mode.
 - Rewrites appear one passage at a time, not word by word.
-- **On-device models don't move AI detectors.** On a 370-word AI text, rewriting every sentence with Qwen 2.5 1.5B left the Binoculars score flat (0.994 to 1.002), and a user's third-party detector read 77.5% before and after with both Qwen and Llama 3.2 3B. Gemini Flash through an API key took the same detector from 77.5% to 45% by rewriting two sentences. Small models also invent details in domain-heavy text.
+- **On-device models don't move AI detectors**, so new users start on the API-key path with Gemini (free tier, gemini-3.8-flash) and the dialog says so. On a 370-word AI text, rewriting every sentence with Qwen 2.5 1.5B left the Binoculars score flat (0.994 to 1.002), and a user's third-party detector read 77.5% before and after with both Qwen and Llama 3.2 3B. Gemini Flash through an API key took the same detector from 77.5% to 45% by rewriting two sentences. Small models also invent details in domain-heavy text.
 
 ## License
 

@@ -14,6 +14,16 @@ export interface ProviderInfo {
 }
 
 export const PROVIDERS: ProviderInfo[] = [
+  // First and default: Gemini Flash has a free tier, so it's the no-cost way to get strong rewrites.
+  // Free-tier rate limits are low, hence two requests at a time.
+  {
+    id: 'gemini',
+    label: 'Google Gemini',
+    keyRequired: true,
+    keyUrl: 'https://aistudio.google.com/apikey',
+    defaultModel: 'gemini-3.8-flash',
+    concurrency: 2,
+  },
   { id: 'openai', label: 'OpenAI', keyRequired: true, keyUrl: 'https://platform.openai.com/api-keys', concurrency: 4 },
   {
     id: 'anthropic',
@@ -23,7 +33,6 @@ export const PROVIDERS: ProviderInfo[] = [
     defaultModel: 'claude-opus-5-5',
     concurrency: 4,
   },
-  { id: 'gemini', label: 'Google Gemini', keyRequired: true, keyUrl: 'https://aistudio.google.com/apikey', concurrency: 4 },
   { id: 'openrouter', label: 'OpenRouter', keyRequired: true, keyUrl: 'https://openrouter.ai/keys', concurrency: 4 },
   { id: 'groq', label: 'Groq', keyRequired: true, keyUrl: 'https://console.groq.com/keys', concurrency: 3 },
   { id: 'mistral', label: 'Mistral', keyRequired: true, keyUrl: 'https://console.mistral.ai/api-keys', concurrency: 3 },

@@ -119,15 +119,15 @@
 
     <fieldset class="modes">
       <legend class="visually-hidden">Engine</legend>
-      <label class="mode" class:on={prefs.mode === 'device'}>
-        <input type="radio" name="mode" value="device" bind:group={prefs.mode} />
-        <span class="mode-title">On this device</span>
-        <span class="mode-note">Free and private. Downloads a model once.</span>
-      </label>
       <label class="mode" class:on={prefs.mode === 'key'}>
         <input type="radio" name="mode" value="key" bind:group={prefs.mode} />
         <span class="mode-title">With my API key</span>
-        <span class="mode-note">Faster. Text goes to the provider you pick.</span>
+        <span class="mode-note">Best results. Google Gemini has a free tier. Your text goes to the provider you pick.</span>
+      </label>
+      <label class="mode" class:on={prefs.mode === 'device'}>
+        <input type="radio" name="mode" value="device" bind:group={prefs.mode} />
+        <span class="mode-title">On this device</span>
+        <span class="mode-note">Private, nothing leaves your browser. Fixes stock phrases, but small models won’t change how AI detectors score your text.</span>
       </label>
     </fieldset>
 
@@ -180,10 +180,23 @@
             </div>
           </div>
         {/if}
+        {#if prefs.provider === 'gemini'}
+          <div class="howto">
+            <ol>
+              <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a> and sign in with a Google account.</li>
+              <li>Press <b>Create API key</b>, copy it, and paste it below. No card is needed for the free tier.</li>
+            </ol>
+            <p class="muted">
+              On the free tier Google may use what you send to improve its products, and human reviewers may read it. Don’t paste anything confidential.
+              This doesn’t apply with billing turned on, or in the EEA, Switzerland and the UK. Google requires API users to be 18 or older.
+              <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener noreferrer">Google’s terms</a>
+            </p>
+          </div>
+        {/if}
         <label class="field">
           <span>API key{prefs.info.keyRequired ? '' : ' (optional)'}</span>
           <input class="input" type="password" bind:value={prefs.key} autocomplete="off" spellcheck="false" />
-          {#if prefs.info.keyUrl}<small class="muted">Get one at <a href={prefs.info.keyUrl} target="_blank" rel="noopener noreferrer">{new URL(prefs.info.keyUrl).hostname}</a></small>{/if}
+          {#if prefs.info.keyUrl && prefs.provider !== 'gemini'}<small class="muted">Get one at <a href={prefs.info.keyUrl} target="_blank" rel="noopener noreferrer">{new URL(prefs.info.keyUrl).hostname}</a></small>{/if}
         </label>
         <div class="field">
           <label for="model-input">Model</label>
@@ -250,6 +263,28 @@
 </dialog>
 
 <style>
+  .howto {
+    display: grid;
+    gap: 0.5rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    font-size: var(--t-sm);
+    line-height: 1.5;
+  }
+
+  .howto ol {
+    margin: 0;
+    padding-left: 1.2rem;
+    display: grid;
+    gap: 0.25rem;
+  }
+
+  .howto p {
+    margin: 0;
+    font-size: var(--t-xs);
+  }
+
   dialog {
     width: min(36rem, calc(100vw - 2 * var(--gutter)));
     max-height: calc(100dvh - 2rem);

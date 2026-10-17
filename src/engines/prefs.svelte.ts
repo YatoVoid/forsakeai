@@ -23,8 +23,8 @@ function read(): Stored {
 
 /** How the user wants rewrites done. Survives reloads, except unsaved API keys. */
 export class EnginePrefs {
-  mode = $state<EngineMode>('device');
-  provider = $state<ProviderId>('openai');
+  mode = $state<EngineMode>('key');
+  provider = $state<ProviderId>('gemini');
   model = $state('');
   baseUrl = $state(DEFAULT_LOCAL_URL);
   key = $state('');
@@ -34,8 +34,9 @@ export class EnginePrefs {
 
   constructor() {
     const s = read();
-    this.mode = s.mode ?? 'device';
-    this.provider = s.provider ?? 'openai';
+    // On-device models fix stock phrases but don't change how detectors score text, so new users start on a key.
+    this.mode = s.mode ?? 'key';
+    this.provider = s.provider ?? 'gemini';
     this.baseUrl = s.baseUrl ?? DEFAULT_LOCAL_URL;
     this.remember = s.remember ?? false;
     this.chosen = s.mode !== undefined;

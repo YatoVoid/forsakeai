@@ -70,6 +70,17 @@ await page.getByRole('button', { name: /Clean it up/ }).click();
 await page.waitForSelector('.manuscript');
 check((await page.getByRole('note').count()) === 0, 'the tip stays dismissed');
 
+await page.getByRole('button', { name: /^Rewrite \d+ sentences?/ }).click();
+const dialog = page.locator('dialog[open]');
+await dialog.waitFor();
+check(await dialog.getByRole('radio', { name: /With my API key/ }).isChecked(), 'new users start on the API-key path');
+check((await dialog.getByLabel('Provider', { exact: true }).inputValue()) === 'gemini', 'with Gemini as the provider');
+check((await dialog.locator('#model-input').inputValue()) === 'gemini-3.8-flash', 'and its free Flash model');
+check(await dialog.getByText('Create API key').isVisible(), 'key setup steps are shown');
+check(await dialog.getByText(/human reviewers may read it/).isVisible(), 'free-tier data use is disclosed');
+await page.screenshot({ path: `${shots}/fr-settings.png` });
+await dialog.getByRole('button', { name: 'Cancel' }).click();
+
 check(errors.length === 0, `no page errors ${JSON.stringify(errors)}`);
 await browser.close();
 console.log(failures.length ? `\n${failures.length} failed` : '\nall passed');

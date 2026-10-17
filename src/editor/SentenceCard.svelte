@@ -98,6 +98,10 @@
       <p class="now">{sentence.source}</p>
     {/if}
 
+    {#if sentence.group && !working}
+      <p class="hint">Rewritten together with the rest of its paragraph, so accept and restore apply to the whole paragraph.</p>
+    {/if}
+
     {#if reasons.length}
       <ul>
         {#each reasons as f (f.ruleId + f.match)}

@@ -1,6 +1,6 @@
 import { createByokEngine, providerInfo, type ByokConfig } from '../engines/byok/providers';
 import { isModelCached, loadLocalEngine, requestPersistence, unloadLocalEngine, type LoadProgress } from '../engines/local/engine';
-import { LOCAL_MODELS, type LocalModel } from '../engines/local/models';
+import { LOCAL_MODELS, smallerModel, type LocalModel } from '../engines/local/models';
 import { probeDevice, type ProbeResult } from '../engines/local/probe';
 import { EngineError, type Engine } from '../engines/types';
 import type { Chunk } from '../pipeline/chunk';
@@ -73,8 +73,8 @@ export class Session {
   stopping = $state(false);
   status = $state<Status>({ text: '', fraction: null, tone: 'quiet' });
   selectedId = $state<string | null>(null);
-  /** The sentence the model is on right now; separate from the reader's selection. */
-  workingId = $state<string | null>(null);
+  /** Sentences the model is on right now; separate from the reader's selection. */
+  workingIds = $state<string[]>([]);
   probe = $state<ProbeResult | null>(null);
   localModel = $state<LocalModel>(LOCAL_MODELS[0]!);
   localCached = $state(false);
@@ -202,9 +202,21 @@ export class Session {
     const choice: EngineChoice = { kind: 'local', model: this.localModel.base };
     await this.start(choice, async () => {
       await requestPersistence();
-      const engine = await loadLocalEngine(this.localModel, (this.probe as { f16: boolean }).f16, (p) => this.onLoad(p));
-      this.localCached = true;
-      return engine;
+      const f16 = (this.probe as { f16: boolean }).f16;
+      for (;;) {
+        try {
+          const engine = await loadLocalEngine(this.localModel, f16, (p) => this.onLoad(p));
+          this.localCached = true;
+          return engine;
+        } catch (err) {
+          const next = smallerModel(this.localModel);
+          if (!(err instanceof EngineError) || err.opts.provider !== 'memory' || !next) throw err;
+          this.say(`${this.localModel.label} doesn’t fit on this graphics card. Switching to ${next.label}.`, null, 'working');
+          this.localModel = next;
+          this.lastEngine = { kind: 'local', model: next.base };
+          if (this.job?.engine?.kind === 'local') this.job.engine = this.lastEngine;
+        }
+      }
     });
   }
 
@@ -338,11 +350,12 @@ export class Session {
             current = chunk;
             started.set(mode + chunk.index, performance.now());
             pace.chunkStarted();
-            this.workingId = chunk.targets[0] ?? null;
+            if (engine.granularity !== 'sentence') this.workingIds = chunk.targets.slice(0, 1);
           },
           onProgress: (chars) => pace.progress(chars),
-          onSentenceStart: (id) => (this.workingId = id),
-          onSentenceDone: async () => {
+          onSentenceStart: (id) => (this.workingIds = [...this.workingIds, id]),
+          onSentenceDone: async (id) => {
+            this.workingIds = this.workingIds.filter((w) => w !== id);
             this.sentencesDone++;
             render();
             await this.persist();
@@ -371,7 +384,7 @@ export class Session {
       if (err instanceof EngineError && err.code === 'aborted') this.pauseState();
       else this.fail(err);
     } finally {
-      this.workingId = null;
+      this.workingIds = [];
       this.stopTimers();
     }
   }
@@ -598,8 +611,11 @@ export class Session {
 
   decide(id: string, decision: 'accepted' | 'rejected'): void {
     const s = this.find(id);
-    if (!s || proposedText(s) === s.source) return;
-    s.decision = s.decision === decision ? undefined : decision;
+    if (!s || (proposedText(s) === s.source && !s.group)) return;
+    const next = s.decision === decision ? undefined : decision;
+    // Text moved between grouped sentences, so restoring one alone would duplicate or drop it.
+    const members = s.group && this.doc ? this.doc.blocks.flatMap((b) => b.sentences).filter((x) => x.group === s.group) : [s];
+    for (const m of members) m.decision = next;
     void this.persist();
   }
 

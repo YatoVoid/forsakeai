@@ -30,8 +30,20 @@ export function wordDiff(before: string, after: string): DiffPart[] {
   const b = encode(after);
   const diffs = dmp.diff_main(a, b, false);
   dmp.diff_cleanupSemantic(diffs);
-  return diffs.map(([op, chars]) => ({
+  const parts: DiffPart[] = diffs.map(([op, chars]) => ({
     op: op === 0 ? 'equal' : op === 1 ? 'insert' : 'delete',
     text: [...chars].map((c) => tokens[c.charCodeAt(0) - 0x100]).join(''),
   }));
+  // When most words changed, interleaved marks are unreadable; show old then new whole.
+  const words = (t: string) => t.match(/[\p{L}\p{N}]+/gu)?.length ?? 0;
+  const kept = parts.filter((p) => p.op === 'equal').reduce((n, p) => n + words(p.text), 0);
+  if (before && after && kept < Math.max(words(before), words(after)) * MIN_KEPT_FOR_INLINE) {
+    return [
+      { op: 'delete', text: before },
+      { op: 'insert', text: after },
+    ];
+  }
+  return parts;
 }
+
+const MIN_KEPT_FOR_INLINE = 0.5;

@@ -25,7 +25,11 @@ async function run(viewport, scheme) {
   await page.goto(base);
   check((await page.title()) === 'Plainhand', 'title');
   check((await page.locator('meta[http-equiv="Content-Security-Policy"]').count()) === 1, 'CSP meta present');
-  check(await page.locator('.strunk img').evaluate((img) => img.complete && img.naturalWidth > 0), 'Strunk scan loads');
+  await page.locator('.strunk img').scrollIntoViewIfNeeded();
+check(
+  await page.locator('.strunk img').evaluate((img) => (img.complete ? img.naturalWidth > 0 : new Promise((done) => (img.onload = () => done(img.naturalWidth > 0))))),
+  'Strunk scan loads',
+);
 
   await cleanSample(page);
   const counts = await page.locator('.sheet .counts').textContent();

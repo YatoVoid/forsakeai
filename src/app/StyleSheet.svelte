@@ -166,7 +166,7 @@
         {#if selected}
           <SentenceCard
             sentence={selected}
-            working={phase === 'running' && session.workingId === selected.id}
+            working={phase === 'running' && session.workingIds.includes(selected.id)}
             canEdit={phase !== 'running'}
             onDecide={(d) => session.decide(selected.id, d)}
             onEdit={(text) => session.editSentence(selected.id, text)}

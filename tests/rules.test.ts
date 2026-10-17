@@ -82,3 +82,11 @@ describe('paired em dashes', () => {
     expect(runRules('It works—mostly.', 'eng').text).toBe('It works, mostly.');
   });
 });
+
+describe('"isn\'t just" constructions', () => {
+  it('flags the contracted and plural forms', () => {
+    for (const t of ["This isn't just about where you work, it's about how work is done.", 'Remote work is not merely a trend; it is a shift.', "They aren't just tools, they're habits.", "Remote work isn't just a thing people are trying out, it shows how strong workers are."]) {
+      expect(runRules(t, 'eng').flags.some((f) => f.ruleId === 'en-isnt-just' || f.ruleId === 'en-not-merely'), t).toBe(true);
+    }
+  });
+});

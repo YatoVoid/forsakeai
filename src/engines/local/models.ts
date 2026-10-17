@@ -16,35 +16,40 @@ export interface LocalModel {
   licenseUrl?: string;
 }
 
+// Chosen by scoring rewrites with an open AI-text detector and a meaning check
+// (docs/local-rewrite-eval.md). Llama 3.2 3B and Phi 3.5 scored worse than Qwen3 4B.
 export const LOCAL_MODELS: LocalModel[] = [
   {
-    base: 'Qwen2.5-1.5B-Instruct',
-    label: 'Standard (Qwen 2.5 1.5B)',
-    downloadMB: 880,
-    vramMB: 1630,
+    base: 'Qwen3-4B',
+    label: 'Best (Qwen3 4B)',
+    downloadMB: 2174,
+    vramMB: 3432,
+    wordsPerSec: 12,
+    license: 'Apache 2.0',
+  },
+  {
+    base: 'Qwen3-1.7B',
+    label: 'Faster (Qwen3 1.7B)',
+    downloadMB: 939,
+    vramMB: 2037,
     wordsPerSec: 25,
     license: 'Apache 2.0',
   },
   {
-    base: 'Llama-3.2-3B-Instruct',
-    label: 'Better (Llama 3.2 3B), for 8 GB+ graphics',
-    downloadMB: 1817,
-    vramMB: 2264,
-    wordsPerSec: 15,
-    license: 'Llama 3.2 Community License',
-    languages: ['eng', 'deu', 'fra', 'ita', 'por', 'hin', 'spa', 'tha'],
-    attribution: 'Built with Llama',
-    licenseUrl: 'https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/LICENSE',
-  },
-  {
-    base: 'Qwen2.5-0.5B-Instruct',
-    label: 'Small (Qwen 2.5 0.5B), for older devices',
-    downloadMB: 290,
-    vramMB: 945,
-    wordsPerSec: 6,
+    base: 'Qwen3-0.6B',
+    label: 'Small (Qwen3 0.6B), for older devices',
+    downloadMB: 335,
+    vramMB: 1403,
+    wordsPerSec: 35,
     license: 'Apache 2.0',
   },
 ];
+
+/** What to try when the chosen model doesn't fit in graphics memory. */
+export function smallerModel(model: LocalModel): LocalModel | undefined {
+  const at = LOCAL_MODELS.indexOf(model);
+  return at >= 0 ? LOCAL_MODELS[at + 1] : undefined;
+}
 
 export function supportsLanguage(model: LocalModel, lang: string): boolean {
   return !model.languages || model.languages.includes(lang);

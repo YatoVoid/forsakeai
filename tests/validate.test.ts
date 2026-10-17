@@ -150,3 +150,22 @@ describe('possessive names', () => {
     expect(validateRewrite(original, "Thanks to D.Va's mix of mitigation, burst damage and mobility, she is the best all-around tank pick.", 'eng', () => 'eng')).toEqual([]);
   });
 });
+
+describe('droppedNames', () => {
+  it('lists names the rewrite no longer mentions', async () => {
+    const { droppedNames } = await import('../src/pipeline/validate');
+    expect(droppedNames('She dives alongside Tracer, Genji, or Winston.', 'She dives with Tracer or Genji.')).toEqual(['Winston']);
+    expect(droppedNames('D.Va stands out. Her Booster helps.', 'She stands out, and D.Va has a booster.')).toEqual([]);
+  });
+});
+
+describe('wordDiff on heavy rewrites', () => {
+  it('shows the old and new sentence whole when most words changed', async () => {
+    const { wordDiff } = await import('../src/lib/diff');
+    expect(wordDiff('In long-range Poke matchups, Defense Matrix absorbs incoming pressure.', 'When the fight is at range, she just eats the damage.')).toEqual([
+      { op: 'delete', text: 'In long-range Poke matchups, Defense Matrix absorbs incoming pressure.' },
+      { op: 'insert', text: 'When the fight is at range, she just eats the damage.' },
+    ]);
+    expect(wordDiff('This is pivotal for the team.', 'This is big for the team.').some((p) => p.op === 'equal')).toBe(true);
+  });
+});

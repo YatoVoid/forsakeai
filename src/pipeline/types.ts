@@ -26,6 +26,11 @@ export interface Sentence {
   auditFlags?: RuleFlag[];
   /** The reader's call on a changed sentence. Unset means the change stands. */
   decision?: 'accepted' | 'rejected';
+  /**
+   * Sentences rewritten together as one paragraph whose content moved between
+   * them (merged or split). Accept and restore apply to the whole group.
+   */
+  group?: string;
   /** The reader typed this sentence themselves; rewrites leave it alone. */
   edited?: boolean;
   note?: string;

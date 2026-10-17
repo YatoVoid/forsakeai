@@ -19,6 +19,12 @@ export function parseProgress(report: InitProgressReport): LoadProgress {
   return { phase: 'gpu', fraction: report.progress, text: report.text };
 }
 
+/** Errors WebGPU raises when buffers don't fit, at load or on the first generation. */
+const OUT_OF_MEMORY = /out of memory|mapAsync|allocat|device (was )?lost|createBuffer/i;
+
+/** Qwen3 thinks before answering unless told not to; a rewrite doesn't need it. */
+const thinkingOff = (model: LocalModel) => (model.base.startsWith('Qwen3') ? { extra_body: { enable_thinking: false } } : {});
+
 let worker: Worker | null = null;
 let engine: WebWorkerMLCEngine | null = null;
 let loadedId: string | null = null;
@@ -59,6 +65,10 @@ export async function loadLocalEngine(
       });
       // Pause during the load unloads it; don't resurrect a terminated worker.
       if (worker !== w) throw new EngineError('aborted', 'Stopped');
+      // Weights can load and still not fit once generation allocates its buffers.
+      // One token now turns that into a load failure the caller can recover from.
+      await loaded.chat.completions.create({ messages: [{ role: 'user', content: 'Hi' }], max_tokens: 1, ...thinkingOff(model) });
+      await loaded.resetChat();
       engine = loaded;
       loadedId = id;
     } catch (err) {
@@ -73,6 +83,7 @@ export async function loadLocalEngine(
       if (/quota/i.test(message)) {
         throw new EngineError('bad-request', 'Not enough browser storage for the model. Free some space or use an API key.');
       }
+      if (OUT_OF_MEMORY.test(message)) throw new EngineError('bad-request', `${model.label} doesn't fit in this graphics card's memory.`, { provider: 'memory' });
       throw new EngineError('bad-request', `The on-device model failed to load: ${message}`);
     }
   }
@@ -93,6 +104,7 @@ export async function loadLocalEngine(
           stream: true,
           temperature: 0.6,
           max_tokens: req.maxTokens ?? 1200,
+          ...thinkingOff(model),
           messages: [
             { role: 'system', content: req.system },
             { role: 'user', content: req.user },

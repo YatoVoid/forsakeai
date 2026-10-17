@@ -27,7 +27,7 @@
 
   const showDoc = $derived(session.phase !== 'empty' && session.doc !== null);
   const reviewable = $derived(session.phase === 'review' || session.phase === 'done' || session.phase === 'paused');
-  const workingIds = $derived(session.phase === 'running' && session.workingId ? [session.workingId] : []);
+  const workingIds = $derived(session.phase === 'running' ? session.workingIds : []);
   const langLabel = $derived(session.doc ? languageName(session.doc.lang) : '');
   const words = $derived(session.input.trim() ? session.input.trim().split(/\s+/).length : 0);
 
@@ -59,7 +59,7 @@
   }
 
   $effect(() => {
-    const id = session.workingId;
+    const id = session.workingIds[0];
     if (session.phase !== 'running' || !id) return;
     void tick().then(() => page?.querySelector<HTMLElement>(`[data-id="${id}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
   });

@@ -15,7 +15,9 @@ It does not promise any detector score, and no tool honestly can.
 7. **Audit.** The rule list runs again over every rewrite. Deterministic leftovers are fixed in place; rewrites that still read stiff go back to the model once, and a failed audit keeps the first rewrite.
 8. **Spelling (optional).** English documents can be converted to US or UK spelling with a word list, before and after the rewrite.
 
-**Small models get one sentence at a time.** On-device models and local servers (Qwen 2.5 1.5B and smaller) can't follow the tagged passage format; in testing, a 1.5B model rewrote 0 of 7 sentences that way. They get a one-sentence prompt with only the previous sentence as context, because given the following sentence too they often rewrote that one instead. Each sentence gets up to three tries. Every answer that passes validation is kept, and the one with the fewest leftover stock phrases wins, then the one closest in meaning. Replies are capped at about twice the sentence's length in tokens.
+**Whole paragraphs on device.** With "Every sentence", on-device models rewrite a paragraph per request, in a conversational voice. The paragraph is validated as a whole (locked tokens, numbers, invented names, length, language, embedding similarity of at least 0.72), with up to three tries; dropped names and leftover stock phrases get one more try and otherwise count against the answer. The new sentences are then aligned back onto the old ones so review stays sentence by sentence. Sentences whose content moved are grouped, and Accept or Restore applies to the group. A paragraph that never validates falls back to one sentence at a time. See [docs/local-rewrite-eval.md](docs/local-rewrite-eval.md) for how this beat sentence-at-a-time rewrites and every other model that fits a 6 GB GPU.
+
+**Small models get one sentence at a time** for "Stiff sentences". On-device models and local servers (Qwen 2.5 1.5B and smaller) can't follow the tagged passage format; in testing, a 1.5B model rewrote 0 of 7 sentences that way. They get a one-sentence prompt with only the previous sentence as context, because given the following sentence too they often rewrote that one instead. Each sentence gets up to three tries. Every answer that passes validation is kept, and the one with the fewest leftover stock phrases wins, then the one closest in meaning. Replies are capped at about twice the sentence's length in tokens.
 
 **Meaning check.** Word overlap can't tell a paraphrase from a different claim, so small-model rewrites are also compared with the original using a multilingual sentence embedding ([paraphrase-multilingual-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2), Apache 2.0, 129 MB with tokenizer, run in a worker on WASM). A rewrite under 0.62 cosine similarity, or closer to a neighbouring sentence than to its own, is rejected. If the model can't download, the word-overlap check runs instead. Stock words the rules flagged don't count toward the overlap, since removing them is the point. On the test essay, this took a 1.5B model from 6 of 13 stiff sentences rewritten to 11 of 13 (`scripts/eval-rewrite.ts`). It catches rewrites that change the subject; it doesn't catch small invented details.
 
@@ -29,7 +31,7 @@ Each finished chunk is saved to IndexedDB. Reloading mid-job offers to resume, a
 
 | Engine | Where the text goes | Notes |
 | --- | --- | --- |
-| On this device | Nowhere | WebLLM on WebGPU. Qwen 2.5 1.5B (880 MB) or 0.5B (290 MB), both Apache 2.0, or Llama 3.2 3B (1.8 GB, Llama 3.2 Community License, eight languages). Downloaded once and cached by the browser |
+| On this device | Nowhere | WebLLM on WebGPU. Qwen3 4B (2.2 GB), 1.7B (0.9 GB) or 0.6B (0.3 GB), all Apache 2.0. Downloaded once and cached by the browser. If 4B doesn't fit in graphics memory, the app drops to 1.7B on its own |
 | Your API key | Straight to the provider | OpenAI, Anthropic, Gemini, OpenRouter, Groq, Mistral, or a local Ollama / LM Studio server on `localhost`. Keys stay in this browser: in localStorage, optionally encrypted with a passphrase (PBKDF2 + AES-GCM) |
 
 WebGPU ships by default in Chrome and Edge, Safari 26+, and Firefox on Windows and macOS. Firefox on Linux doesn't have it yet; those users get the API-key path.
@@ -84,6 +86,7 @@ node tests/e2e/long.mjs   http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/phase2.mjs http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/firstrun.mjs http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/pause.mjs    http://localhost:4173/plainhand/ /path/to/chromium   # needs the slow stub on 8788
+CHROMIUM_GPU=/path/to/full/chrome node tests/e2e/ondevice.mjs draft.md out/   # real WebLLM on a real GPU, headed
 node tests/e2e/essay.mjs essay.md out/ http://127.0.0.1:8790/v1 Qwen2.5-1.5B-Instruct   # needs scripts/local-llm-server.mjs
 ```
 
@@ -108,7 +111,7 @@ node --import ./scripts/ts-register.mjs scripts/eval-rewrite.ts essay.md http://
 - Landing pages localize their intro and sample; the rest of the interface is English.
 - Not built yet: the AI-likelihood checker, comparison pages, email capture, and the hosted Fast mode.
 - Rewrites appear one passage at a time, not word by word.
-- **On-device models don't move AI detectors**, so new users start on the API-key path with Gemini (free tier, gemini-3.8-flash) and the dialog says so. On a 370-word AI text, rewriting every sentence with Qwen 2.5 1.5B left the Binoculars score flat (0.994 to 1.002), and a user's third-party detector read 77.5% before and after with both Qwen and Llama 3.2 3B. Gemini Flash through an API key took the same detector from 77.5% to 45% by rewriting two sentences. Small models also invent details in domain-heavy text.
+- **On-device rewrites still trail API models.** Qwen3 4B in paragraph mode took an open detector's score on the test set from 10.8 to about 5.5 (Qwen 2.5 1.5B barely moved it), but a 4B model drops details and occasionally flips a claim. New users start on the API-key path with Gemini (free tier, gemini-3.8-flash).
 
 ## License
 

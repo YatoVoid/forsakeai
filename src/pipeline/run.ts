@@ -1,10 +1,21 @@
 import { runRules } from '../engines/rules/run';
 import { EngineError, type Engine } from '../engines/types';
 import { chunkDoc, estimateTokens, isStiff, type Chunk } from './chunk';
-import { buildPrompt, buildSentencePrompt, parseResponse, parseSentenceResponse, type BuiltPrompt, type PassMode, type Register } from './prompt';
+import {
+  buildParagraphPrompt,
+  buildPrompt,
+  buildSentencePrompt,
+  parseParagraphResponse,
+  parseResponse,
+  parseSentenceResponse,
+  type BuiltPrompt,
+  type PassMode,
+  type Register,
+} from './prompt';
 import { protect, unprotect } from './protect';
+import { splitSentences } from './parse';
 import type { Block, Doc, Sentence } from './types';
-import { stockDiff, validateRewrite, type LangDetect } from './validate';
+import { contentStems, droppedNames, stockDiff, validateRewrite, type LangDetect } from './validate';
 import type { VoiceProfile } from './voice';
 
 export interface MeaningScorer {
@@ -16,6 +27,9 @@ export interface MeaningScorer {
 export const MIN_SIMILARITY = 0.62;
 /** Sentence mode asks again while a rewrite fails validation or still carries a stock phrase. */
 const MAX_SENTENCE_ATTEMPTS = 3;
+/** Paragraph rewrites move more words around, so the bar is lower than for one sentence. */
+export const MIN_PARAGRAPH_SIMILARITY = 0.72;
+const MAX_PARAGRAPH_ATTEMPTS = 3;
 
 export interface RunOptions {
   register: Register;
@@ -179,6 +193,33 @@ export async function runChunk(
   const lang = index.get(chunk.targets[0]!)?.lang ?? 'eng';
   const base = { register: opts.register, lang, voice: opts.voice, mode };
 
+  if (engine.granularity === 'sentence' && opts.scope === 'all' && mode === 'rewrite') {
+    const total: ChunkOutcome = { rewritten: 0, kept: 0 };
+    const targets = new Set(chunk.targets);
+    for (const group of chunk.passage) {
+      const ids = group.filter((id) => lookup(id)?.text);
+      const pending = ids.filter((id) => targets.has(id) && !isChunkDone({ ...chunk, targets: [id] }, index, mode));
+      if (!pending.length) continue;
+      // A paragraph goes whole only when every sentence in it is still open;
+      // otherwise the open ones go one at a time around the finished ones.
+      const whole = pending.length === ids.length && ids.length > 1 && (await rewriteParagraph(chunk, ids, index, engine, opts, cb, base));
+      if (whole) {
+        total.rewritten += ids.length;
+        continue;
+      }
+      for (const id of pending) {
+        if (isChunkDone({ ...chunk, targets: [id] }, index, mode)) continue;
+        cb.onSentenceStart?.(id, mode);
+        const result = await rewriteSentence(chunk, id, index, engine, opts, cb, base);
+        const outcome = applyResults({ ...chunk, targets: [id] }, lookup, new Map([[id, result]]), mode);
+        total.rewritten += outcome.rewritten;
+        total.kept += outcome.kept;
+        await cb.onSentenceDone?.(id, mode);
+      }
+    }
+    return total;
+  }
+
   if (engine.granularity === 'sentence') {
     // Each sentence is applied as soon as it's done, so a pause keeps it.
     const total: ChunkOutcome = { rewritten: 0, kept: 0 };
@@ -275,6 +316,126 @@ async function rewriteSentence(
   if (!valid.length) return { reasons };
   valid.sort((a, b) => a.left.length - b.left.length || b.similarity - a.similarity);
   return { rewrite: valid[0]!.rewrite, reasons: [] };
+}
+
+/** Room for a rewrite up to about twice the paragraph's length. */
+const paragraphTokenCap = (masked: string) => Math.max(160, estimateTokens(masked) * 2 + 64);
+
+/**
+ * Rewrites a whole paragraph in one request, then maps the new sentences
+ * back onto the old ones so review still works sentence by sentence.
+ * Returns false when no attempt passed validation; the caller then falls
+ * back to one sentence at a time.
+ */
+async function rewriteParagraph(
+  chunk: Chunk,
+  ids: string[],
+  index: Index,
+  engine: Engine,
+  opts: RunOptions,
+  cb: RunCallbacks,
+  base: { register: Register; lang: string; voice?: VoiceProfile | null; mode: PassMode },
+): Promise<boolean> {
+  const sentences = ids.map((id) => index.get(id)!.sentence);
+  const { lang } = index.get(ids[0]!)!;
+  const text = sentences.map((s, i) => s.text + (i < sentences.length - 1 ? s.trailing : '')).join('');
+  const { masked, slots } = protect(text);
+  const stock = sentences.flatMap((s) => stockOf(s, base.mode));
+  const valid: Candidate[] = [];
+  let strictReasons: string[] | undefined;
+
+  for (const id of ids) cb.onSentenceStart?.(id, base.mode);
+  for (let attempt = 0; attempt < MAX_PARAGRAPH_ATTEMPTS; attempt++) {
+    if (opts.signal.aborted) throw new EngineError('aborted', 'Stopped');
+    const prompt = buildParagraphPrompt(masked, { ...base, strictReasons });
+    const reply = parseParagraphResponse(
+      await completeWithRetry(engine, { ...prompt, targets: [] }, opts, cb, paragraphTokenCap(masked)),
+    );
+    const reasons = validateRewrite(masked, reply, lang, opts.detect, [], { stock, lexicalMeaning: !opts.meaning, softStock: true });
+    let similarity = 1;
+    if (!reasons.length && opts.meaning) {
+      similarity = (await opts.meaning.similarity(reply, [masked]))[0] ?? 0;
+      if (similarity < MIN_PARAGRAPH_SIMILARITY) reasons.push('changed the meaning');
+    }
+    if (reasons.length) {
+      strictReasons = reasons;
+      continue;
+    }
+    // Soft problems: a dropped name or a leftover stock phrase. Ask again, but keep the
+    // answer, since falling back to one sentence at a time does worse overall.
+    // A pronoun may stand in for a name within a paragraph, but the name has to appear somewhere.
+    const dropped = lang === 'deu' ? [] : droppedNames(masked, reply);
+    const { left, added } = stockDiff(masked, reply, lang);
+    const issues = [...dropped.map((n) => `dropped the name ${n}`), ...left.map((p) => `still says "${p}"`), ...added.map((p) => `added "${p}"`)];
+    valid.push({ rewrite: unprotect(reply, slots), left: issues, similarity });
+    // One more try for soft problems at most; each try is a whole paragraph of generation.
+    if (!issues.length || valid.length > 1) break;
+    strictReasons = issues.slice(0, 3);
+  }
+  if (!valid.length) return false;
+  valid.sort((a, b) => a.left.length - b.left.length || b.similarity - a.similarity);
+
+  const parts = splitSentences(valid[0]!.rewrite, lang).map((p) => p.text).filter(Boolean);
+  const spans = alignSentences(
+    sentences.map((s) => s.text),
+    parts,
+  );
+  const regrouped = spans.some((span) => span.length !== 1);
+  for (const [i, s] of sentences.entries()) {
+    s.rewrite = spans[i]!.map((k) => parts[k]).join(' ');
+    s.status = 'rewritten';
+    s.note = undefined;
+    s.decision = undefined;
+    s.group = regrouped ? `p-${ids[0]}` : undefined;
+  }
+  for (const id of ids) await cb.onSentenceDone?.(id, base.mode);
+  return true;
+}
+
+/**
+ * Assigns each new sentence to one old sentence, in order, so that every
+ * old sentence gets the new text that shares the most content with it.
+ * An old sentence may get none (merged into a neighbour) or several (split).
+ * Returns, per old sentence, the indices of the new sentences it gets.
+ */
+export function alignSentences(original: string[], rewritten: string[]): number[][] {
+  const n = original.length;
+  const m = rewritten.length;
+  if (!n) return [];
+  const maxSpan = Math.max(3, Math.ceil(m / n) + 1);
+  const o = original.map(contentStems);
+  const score = (i: number, from: number, to: number) => {
+    if (to === from) return -0.2;
+    const stems = new Set<string>();
+    for (let k = from; k < to; k++) for (const x of contentStems(rewritten[k]!)) stems.add(x);
+    let shared = 0;
+    for (const x of o[i]!) if (stems.has(x)) shared++;
+    const union = o[i]!.size + stems.size - shared;
+    return union ? shared / union : 0.01;
+  };
+  const best: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(-Infinity));
+  const back: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(-1));
+  best[0]![0] = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j <= m; j++) {
+      if (best[i]![j] === -Infinity) continue;
+      for (let len = 0; len <= maxSpan && j + len <= m; len++) {
+        const v = best[i]![j]! + score(i, j, j + len);
+        if (v > best[i + 1]![j + len]!) {
+          best[i + 1]![j + len] = v;
+          back[i + 1]![j + len] = j;
+        }
+      }
+    }
+  }
+  if (best[n]![m] === -Infinity) return original.map((_, i) => (i === 0 ? rewritten.map((_, k) => k) : []));
+  const spans: number[][] = [];
+  for (let i = n, j = m; i > 0; i--) {
+    const from = back[i]![j]!;
+    spans.unshift(Array.from({ length: j - from }, (_, k) => from + k));
+    j = from;
+  }
+  return spans;
 }
 
 function applyResults(

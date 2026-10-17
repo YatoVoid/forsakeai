@@ -127,7 +127,7 @@
       <label class="mode" class:on={prefs.mode === 'device'}>
         <input type="radio" name="mode" value="device" bind:group={prefs.mode} />
         <span class="mode-title">On this device</span>
-        <span class="mode-note">Private, nothing leaves your browser. Fixes stock phrases, but small models won’t change how AI detectors score your text.</span>
+        <span class="mode-note">Private, nothing leaves your browser. Needs a recent graphics card. Good rewrites, but an API model still does better.</span>
       </label>
     </fieldset>
 

@@ -39,6 +39,12 @@ function overlap(source: Set<string>, other: Set<string>): number {
 const words = (text: string) => text.replace(PLACEHOLDER, ' X ').split(/\s+/).filter(Boolean);
 const stripTokens = (text: string) => text.replace(PLACEHOLDER, ' ');
 
+/** Names in the original that the rewrite no longer mentions at all. */
+export function droppedNames(original: string, rewrite: string): string[] {
+  const now = stripTokens(rewrite).toLowerCase();
+  return [...new Set(capitalizedNames(original))].filter((n) => !now.includes(n.toLowerCase()));
+}
+
 function capitalizedNames(text: string): string[] {
   const names: string[] = [];
   const re = /(^|[.!?:;]\s+|["“(]\s*)?(\p{Lu}[\p{Ll}\p{M}'’-]+)/gu;
@@ -55,6 +61,8 @@ export interface ValidateOptions {
   stock?: string[];
   /** Word-overlap meaning checks. Off when an embedding check runs instead. Default on. */
   lexicalMeaning?: boolean;
+  /** Leave added stock phrasing to the caller, which ranks it instead of rejecting. */
+  softStock?: boolean;
 }
 
 export function validateRewrite(
@@ -106,7 +114,7 @@ export function validateRewrite(
   }
 
   // A rewrite may not swap one stock phrase for another ("Moreover" → "Furthermore").
-  const added = stockDiff(original, rewrite, lang).added;
+  const added = opts.softStock ? [] : stockDiff(original, rewrite, lang).added;
   if (added.length) reasons.push(`added stock phrasing ("${added[0]}")`);
 
   const plainOriginal = stripTokens(original).trim();

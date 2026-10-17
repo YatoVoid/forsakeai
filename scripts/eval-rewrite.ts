@@ -17,7 +17,10 @@ const text = readFileSync(file, 'utf8');
 const doc = parse(text, detectLang);
 rulePass(doc);
 
-const inner = createByokEngine({ provider: 'local', key: '', model, baseUrl });
+// baseUrl "webllm:<model id>" runs the real WebLLM model on this machine's GPU.
+const inner = baseUrl.startsWith('webllm:')
+  ? await (await import('./bench/browser-engine')).webllmEngine(baseUrl.slice(7), JSON.parse(process.env.BENCH_OPTS ?? '{}'))
+  : createByokEngine({ provider: 'local', key: '', model, baseUrl });
 let calls = 0;
 const log: Array<{ sentence: string; reply: string }> = [];
 const engine: Engine = {
@@ -56,6 +59,11 @@ for (const r of rows) {
   if (r.note) console.log(`  !! ${r.note}`);
 }
 const rewritten = rows.filter((r) => r.status === 'rewritten').length;
-const summary = { stiff: rows.length, rewritten, kept: rows.length - rewritten, calls, seconds: Math.round(seconds) };
+const sims: number[] = [];
+if (meaning) for (const r of rows) if (r.status === 'rewritten' && r.rewrite) sims.push((await meaning.similarity(r.rewrite, [r.text]))[0]!);
+const meanSim = sims.length ? +(sims.reduce((a, b) => a + b, 0) / sims.length).toFixed(3) : null;
+const minSim = sims.length ? +Math.min(...sims).toFixed(3) : null;
+const summary = { stiff: rows.length, rewritten, kept: rows.length - rewritten, meanSim, minSim, calls, seconds: Math.round(seconds), ...('stats' in inner ? { gpu: inner.stats } : {}) };
+if ('close' in inner) await (inner as { close(): Promise<void> }).close();
 console.log('\n' + JSON.stringify(summary));
 if (out) writeFileSync(out, JSON.stringify({ summary, rows, log, output: serialize(doc) }, null, 2));

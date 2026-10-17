@@ -56,6 +56,12 @@ export const en: Rule[] = [
   { id: 'en-whether-youre', category: 'filler', pattern: `whether you${APOS}re an? [^,.]{1,40} or an?`, note: 'Stock construction' },
   { id: 'en-not-only', category: 'filler', pattern: 'not only [^.;]{1,80} but also', note: '"Not only ... but also" construction' },
   { id: 'en-not-just', category: 'filler', pattern: `it${APOS}s not (?:just|only|merely) (?:about )?[^.;]{1,60}[,;] it${APOS}s`, note: '"Not just X, it\'s Y" construction' },
+  {
+    id: 'en-isnt-just',
+    category: 'filler',
+    pattern: `(?:isn${APOS}t|aren${APOS}t|wasn${APOS}t|is not|are not|${APOS}s not|${APOS}re not) (?:just|only|merely|simply) [^.;]{1,70}[,;] (?:it|this|that|they|we|you|he|she|its|their)(?![\\p{L}])`,
+    note: '"Isn\'t just X, it\'s Y" construction',
+  },
   { id: 'en-transition-cut', category: 'transition', pattern: '^(?:moreover|furthermore|additionally),\\s*', replace: '', note: 'Stock transition' },
   { id: 'en-transition', category: 'transition', pattern: '^(?:overall|ultimately|importantly|notably|looking ahead|looking forward),', note: 'Stock transition' },
   { id: 'en-that-being-said', category: 'transition', pattern: 'that being said|with that in mind|in essence', note: 'Stock transition' },

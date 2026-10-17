@@ -362,3 +362,67 @@ describe('isProse', () => {
     expect(doc.blocks.filter((b) => b.kind !== 'blank').map(isProse)).toEqual([false, true, true]);
   });
 });
+
+describe('thinking blocks', () => {
+  it('ignores <think> sections from reasoning models', async () => {
+    const { parseSentenceResponse, parseResponse } = await import('../src/pipeline/prompt');
+    expect(parseSentenceResponse('<think>\n\n</think>\n\nIt works.')).toBe('It works.');
+    expect(parseSentenceResponse('<think>First I will consider the tone.\nOk.</think>\nRewrite: Fine.')).toBe('Fine.');
+    expect(parseResponse('<think>S1: draft</think>\nS1: Final.').get('S1')).toEqual(['Final.']);
+  });
+});
+
+describe('alignSentences', () => {
+  it('maps one to one when counts match', async () => {
+    const { alignSentences } = await import('../src/pipeline/run');
+    expect(alignSentences(['The cat sat down.', 'Dogs bark loudly.'], ['A cat sat.', 'The dogs bark.'])).toEqual([[0], [1]]);
+  });
+
+  it('gives a merged sentence nothing and a split sentence both halves', async () => {
+    const { alignSentences } = await import('../src/pipeline/run');
+    const original = ['Remote workers report higher satisfaction.', 'Commuting time disappears entirely.', 'Managers worry about culture.'];
+    const merged = ['Remote workers are happier with their satisfaction, and the commuting time disappears.', 'Managers still worry about culture.'];
+    const spans = alignSentences(original, merged);
+    // The merged sentence can land on either of the two it absorbed; the text comes out the same.
+    expect([spans[0], spans[1]].sort()).toEqual([[], [0]]);
+    expect(spans[2]).toEqual([1]);
+    expect(alignSentences(['Cats purr and dogs bark.'], ['Cats purr.', 'Dogs bark.'])).toEqual([[0, 1]]);
+  });
+});
+
+describe('whole-paragraph rewrites on device', () => {
+  const local = (reply: (req: CompletionRequest, call: number) => string) => Object.assign(fakeEngine(reply), { granularity: 'sentence' as const });
+
+  it('rewrites a paragraph in one request and maps the result back onto its sentences', async () => {
+    const { doc } = setup('Remote workers report higher satisfaction. They also stay longer with employers. Managers worry about culture.');
+    const engine = local((req) => {
+      expect(req.user).toMatch(/^Paragraph:\n/);
+      return "<think>\n</think>\nRemote workers are happier, and they stay longer with employers. Managers still worry about culture.";
+    });
+    await rewriteDoc(doc, engine, { ...opts(), scope: 'all' });
+    expect(engine.calls).toBe(1);
+    const [a, b, c] = doc.blocks[0]!.sentences;
+    expect(serialize(doc)).toBe('Remote workers are happier, and they stay longer with employers. Managers still worry about culture.');
+    expect(a!.group).toBe(b!.group);
+    expect(a!.group).toBeDefined();
+    expect(c!.rewrite).toBe('Managers still worry about culture.');
+  });
+
+  it('falls back to one sentence at a time when the paragraph keeps failing', async () => {
+    const { doc } = setup('Our team ships every week. The release fixes the login bug.');
+    const engine = local((req) => (req.user.startsWith('Paragraph:') ? 'Something else entirely about [[9]] cats.' : /^Sentence to rewrite: (.*)$/m.exec(req.user)![1]!.replace('The release', 'This release')));
+    await rewriteDoc(doc, engine, { ...opts(), scope: 'all' });
+    expect(engine.calls).toBe(3 + 2);
+    expect(serialize(doc)).toBe('Our team ships every week. This release fixes the login bug.');
+  });
+
+  it('keeps stiff-only runs sentence by sentence', async () => {
+    const { doc } = setup('This is pivotal. Plain text here.');
+    const engine = local((req) => {
+      expect(req.user).not.toMatch(/^Paragraph:/);
+      return 'This matters.';
+    });
+    await rewriteDoc(doc, engine, opts());
+    expect(serialize(doc)).toBe('This matters. Plain text here.');
+  });
+});

@@ -1,7 +1,7 @@
 import { runRules } from '../engines/rules/run';
 import { EngineError, type Engine } from '../engines/types';
 import { chunkDoc, isStiff, type Chunk } from './chunk';
-import { buildPrompt, parseResponse, type BuiltPrompt, type PassMode, type Register } from './prompt';
+import { buildPrompt, buildSentencePrompt, parseResponse, parseSentenceResponse, type BuiltPrompt, type PassMode, type Register } from './prompt';
 import { protect, unprotect } from './protect';
 import type { Doc, Sentence } from './types';
 import { validateRewrite, type LangDetect } from './validate';
@@ -85,7 +85,17 @@ async function completeWithRetry(engine: Engine, prompt: BuiltPrompt, opts: RunO
   }
 }
 
-function evaluate(prompt: BuiltPrompt, response: string, index: Index, detect: LangDetect) {
+/** The sentences either side of each target, for the neighbour check. */
+function neighbours(chunk: Chunk, index: Index, id: string): string[] {
+  const order = chunk.passage.flat();
+  const at = order.indexOf(id);
+  return [order[at - 1], order[at + 1]]
+    .map((n) => (n ? index.get(n)?.sentence : undefined))
+    .filter((s): s is Sentence => !!s)
+    .map((s) => s.rewrite ?? s.text);
+}
+
+function evaluate(prompt: BuiltPrompt, response: string, index: Index, detect: LangDetect, chunk: Chunk) {
   const parsed = parseResponse(response);
   const chunkReasons: string[] = [];
   const results = new Map<string, TargetResult>();
@@ -103,7 +113,7 @@ function evaluate(prompt: BuiltPrompt, response: string, index: Index, detect: L
     }
     if (candidates.length > 1) chunkReasons.push(`${t.key} appeared twice`);
     const candidate = candidates[0]!;
-    const reasons = validateRewrite(t.masked, candidate, lang, detect);
+    const reasons = validateRewrite(t.masked, candidate, lang, detect, neighbours(chunk, index, t.sentenceId));
     results.set(t.sentenceId, reasons.length ? { reasons } : { rewrite: unprotect(candidate, t.slots, t.offset), reasons });
   }
   return { results, chunkReasons };
@@ -121,8 +131,23 @@ export async function runChunk(
   const lang = index.get(chunk.targets[0]!)?.lang ?? 'eng';
   const base = { register: opts.register, lang, voice: opts.voice, mode };
 
+  if (engine.granularity === 'sentence') {
+    const final = new Map<string, TargetResult>();
+    for (const id of chunk.targets) {
+      if (opts.signal.aborted) throw new EngineError('aborted', 'Stopped');
+      const ask = async (strictReasons?: string[]) => {
+        const prompt = buildSentencePrompt(chunk, id, lookup, { ...base, strictReasons });
+        const reply = parseSentenceResponse(await completeWithRetry(engine, prompt, opts, cb));
+        return evaluate(prompt, reply ? `S1: ${reply}` : '', index, opts.detect, chunk).results.get(id)!;
+      };
+      const first = await ask();
+      final.set(id, first.rewrite ? first : await ask(first.reasons));
+    }
+    return applyResults(chunk, lookup, final, mode);
+  }
+
   const first = buildPrompt(chunk, lookup, base);
-  const attempt1 = evaluate(first, await completeWithRetry(engine, first, opts, cb), index, opts.detect);
+  const attempt1 = evaluate(first, await completeWithRetry(engine, first, opts, cb), index, opts.detect, chunk);
 
   let final = attempt1.results;
   const failed = [...attempt1.results.values()].some((r) => !r.rewrite);
@@ -134,7 +159,7 @@ export async function runChunk(
         .flatMap(([id, r]) => r.reasons.map((x) => `${first.targets.find((t) => t.sentenceId === id)!.key} ${x}`)),
     ];
     const second = buildPrompt(chunk, lookup, { ...base, strictReasons: [...new Set(reasons)] });
-    const attempt2 = evaluate(second, await completeWithRetry(engine, second, opts, cb), index, opts.detect);
+    const attempt2 = evaluate(second, await completeWithRetry(engine, second, opts, cb), index, opts.detect, chunk);
     final = new Map();
     for (const id of chunk.targets) {
       const a = attempt1.results.get(id);
@@ -143,6 +168,15 @@ export async function runChunk(
     }
   }
 
+  return applyResults(chunk, lookup, final, mode);
+}
+
+function applyResults(
+  chunk: Chunk,
+  lookup: (id: string) => Sentence | undefined,
+  final: Map<string, TargetResult>,
+  mode: PassMode,
+): ChunkOutcome {
   const outcome: ChunkOutcome = { rewritten: 0, kept: 0 };
   for (const id of chunk.targets) {
     const s = lookup(id);

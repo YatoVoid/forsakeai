@@ -103,7 +103,7 @@ describe('rewriteDoc', () => {
     const controller = new AbortController();
     let done = 0;
     const answerAll = (req: CompletionRequest) =>
-      [...req.user.matchAll(/<(S\d+)>/g)].map((m) => `${m[1]}: This paragraph matters here.`).join('\n');
+      [...req.user.matchAll(/<(S\d+)>(.*?)<\/S\d+>/g)].map((m) => `${m[1]}: ${m[2]!.replace('plays a crucial role', 'matters')}`).join('\n');
     const engine = fakeEngine(answerAll);
     await expect(
       rewriteDoc(doc, engine, opts(controller.signal), {
@@ -148,9 +148,9 @@ describe('audit pass', () => {
   it('sends rewrites that still read stiff back once, then stops', async () => {
     const { doc } = setup('This is a pivotal idea.');
     const engine = fakeEngine((req, call) => {
-      if (call === 0) return 'S1: This idea plays a crucial role.';
-      expect(req.user).toContain('<S1>This idea plays a crucial role.</S1>');
-      expect(req.user).toContain('plays a crucial role');
+      if (call === 0) return 'S1: This idea is still pivotal.';
+      expect(req.user).toContain('<S1>This idea is still pivotal.</S1>');
+      expect(req.user).toContain('pivotal');
       return 'S1: This idea matters most.';
     });
     await rewriteDoc(doc, engine, opts());
@@ -161,15 +161,15 @@ describe('audit pass', () => {
 
   it('keeps the first rewrite when the audit attempt fails validation', async () => {
     const { doc } = setup('It is a pivotal idea for 2024.');
-    const engine = fakeEngine((_req, call) => (call === 0 ? 'S1: It plays a key role in [[1]].' : 'S1: It matters.'));
+    const engine = fakeEngine((_req, call) => (call === 0 ? 'S1: It is still a pivotal idea for [[1]].' : 'S1: It matters.'));
     await rewriteDoc(doc, engine, opts());
     expect(engine.calls).toBe(3);
-    expect(serialize(doc)).toBe('It plays a key role in 2024.');
+    expect(serialize(doc)).toBe('It is still a pivotal idea for 2024.');
   });
 
   it('can be turned off', async () => {
     const { doc } = setup('This is a pivotal idea.');
-    const engine = fakeEngine(() => 'S1: This idea plays a crucial role.');
+    const engine = fakeEngine(() => 'S1: This idea is still pivotal.');
     await rewriteDoc(doc, engine, { ...opts(), audit: false });
     expect(engine.calls).toBe(1);
   });
@@ -212,5 +212,46 @@ describe('targets after a partial run', () => {
     expect(b!.rewrite).toBe('Second point.');
     expect(c!.rewrite).toBe('Third point.');
     expect(a!.rewrite).toBe('First point.');
+  });
+});
+
+describe('sentence-at-a-time mode', () => {
+  const sentenceEngine = (reply: (req: CompletionRequest, call: number) => string) => {
+    const e = fakeEngine(reply);
+    return Object.assign(e, { granularity: 'sentence' as const });
+  };
+
+  it('asks for one sentence per request and splices each back', async () => {
+    const { doc } = setup('Plain opener. This is pivotal at 40% scale. Another robust idea.');
+    const asked: string[] = [];
+    const engine = sentenceEngine((req) => {
+      const m = /^Sentence to rewrite: (.*)$/m.exec(req.user)!;
+      asked.push(m[1]!);
+      expect(req.user).toContain('Previous sentence, for tone only');
+      return m[1]!.includes('[[1]]') ? 'Rewritten sentence: "This matters at [[1]] scale."' : 'Another solid idea.';
+    });
+    await rewriteDoc(doc, engine, opts());
+    expect(asked).toEqual(['This is pivotal at [[1]] scale.', 'Another robust idea.']);
+    expect(serialize(doc)).toBe('Plain opener. This matters at 40% scale. Another solid idea.');
+  });
+
+  it('retries a failed sentence once with the reason, then keeps the original', async () => {
+    const { doc } = setup('This is pivotal at 40% scale.');
+    const engine = sentenceEngine((req, call) => {
+      if (call === 1) expect(req.user).toContain('previous answer was rejected');
+      return 'This matters a lot.';
+    });
+    await rewriteDoc(doc, engine, opts());
+    expect(engine.calls).toBe(2);
+    expect(doc.blocks[0]!.sentences[0]!.status).toBe('kept');
+  });
+});
+
+describe('parseSentenceResponse', () => {
+  it('strips labels and quotes', async () => {
+    const { parseSentenceResponse } = await import('../src/pipeline/prompt');
+    expect(parseSentenceResponse('\n**Rewritten sentence:** "It works."\nExplanation: ...')).toBe('It works.');
+    expect(parseSentenceResponse('S1: Fine.')).toBe('Fine.');
+    expect(parseSentenceResponse('   ')).toBeUndefined();
   });
 });

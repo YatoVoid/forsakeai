@@ -1,6 +1,7 @@
 // The AI-likelihood checker end to end (WASM build, ~1 GB download on first run).
 // Usage: node tests/e2e/checker.mjs [baseUrl] [chromiumPath]
 import { chromium } from 'playwright-core';
+import { cleanSample } from './helpers.mjs';
 
 const base = process.argv[2] ?? 'http://localhost:4173/plainhand/';
 const executablePath = process.argv[3] ?? process.env.CHROMIUM_PATH;
@@ -23,8 +24,7 @@ await page.goto(base);
 check((await page.getByRole('button', { name: 'Check it' }).count()) === 0, 'checker hidden without ?checker');
 
 await page.goto(`${base}?checker`);
-await page.getByRole('button', { name: 'try a sample' }).click();
-await page.getByRole('button', { name: /Clean it up/ }).click();
+await cleanSample(page);
 await page.getByRole('button', { name: 'Check it' }).click();
 const confirm = page.getByRole('button', { name: 'Download and check' });
 await confirm.waitFor();
@@ -41,7 +41,7 @@ check((await page.locator('.checker .caveat').textContent()).includes('never as 
 const rewriteOne = page.getByRole('button', { name: 'Rewrite this one' }).first();
 if (await rewriteOne.count()) {
   await rewriteOne.click();
-  check((await page.locator('.note').textContent()).includes('Reads machine-like to the checker'), 'rewrite-this-one marks the sentence');
+  check((await page.locator('.sheet .card').textContent()).includes('reads machine-like to the checker'), 'rewrite-this-one marks the sentence');
 }
 
 check((await page.evaluate(() => window.__csp)).length === 0, `no CSP violations ${JSON.stringify(await page.evaluate(() => window.__csp))}`);

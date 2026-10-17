@@ -16,6 +16,10 @@ export const REGISTERS: Record<Register, string> = {
   sample: "Match the author's own voice, described below.",
 };
 
+/** Words models reach for when told to sound less robotic. */
+const AVOID_EN =
+  'moreover, furthermore, additionally, crucial, pivotal, vital, seamless, foster, facilitate, leverage, harness, empower, enhance, landscape, realm, delve, robust, meticulous, transformative, cohesive, embark, navigate, testament, tapestry, unlock';
+
 export interface PromptTarget {
   key: string;
   sentenceId: string;
@@ -85,6 +89,7 @@ export function buildPrompt(
     '- Keep each rewrite close to the original length. One sentence, or two short ones at most.',
     '- Do not use dashes as punctuation. Use commas, periods or parentheses.',
     '- Unmarked sentences are context. Do not output them.',
+    ...(opts.lang === 'eng' ? [`- Never use these words: ${AVOID_EN}.`] : []),
     `- ${REGISTERS[opts.register]}`,
     ...(opts.register === 'sample' && opts.voice ? [`- The author's habits: ${opts.voice.brief}.`] : []),
     '',
@@ -127,4 +132,72 @@ export function parseResponse(text: string): Map<string, string[]> {
     out.set(key, list);
   }
   return out;
+}
+
+/**
+ * One-sentence prompt for small models. The neighbours are context only;
+ * the reply must be the rewritten sentence and nothing else.
+ */
+export function buildSentencePrompt(
+  chunk: Chunk,
+  id: string,
+  lookup: (id: string) => Sentence | undefined,
+  opts: { register: Register; lang: string; strictReasons?: string[]; voice?: VoiceProfile | null; mode?: PassMode },
+): BuiltPrompt {
+  const order = chunk.passage.flat();
+  const at = order.indexOf(id);
+  const textOf = (i: number) => {
+    const s = i >= 0 ? lookup(order[i]!) : undefined;
+    return s ? proposedText(s) : '';
+  };
+  // Only the sentence before, labelled as tone context. Small models given the
+  // following sentence too often rewrite that one instead.
+  const before = at > 0 ? textOf(at - 1) : (chunk.context.at(-1) ?? '');
+  const s = lookup(id)!;
+  const { masked, slots } = protect(proposedText(s));
+  const flags = opts.mode === 'audit' ? (s.auditFlags ?? []) : s.flags;
+  const issues = [...new Set(flags.filter((f) => !f.fixed).map((f) => (f.match ? `${f.note.toLowerCase()}: "${f.match}"` : f.note.toLowerCase())))];
+
+  const system = [
+    'You are a copy editor. Rewrite one sentence so it sounds like a specific person wrote it: plain words, concrete wording, natural rhythm.',
+    '',
+    'Rules:',
+    '- Keep the meaning and the facts. Add nothing.',
+    `- Write in ${languageName(opts.lang)}. Never translate.`,
+    '- Tokens like [[3]] stand for locked text. Copy each one exactly once, unchanged.',
+    '- Do not write digits except inside tokens.',
+    '- Keep it about the same length as the original.',
+    '- Do not use dashes as punctuation.',
+    ...(opts.lang === 'eng' ? [`- Never use these words: ${AVOID_EN}.`] : []),
+    `- ${REGISTERS[opts.register]}`,
+    ...(opts.register === 'sample' && opts.voice ? [`- The author's habits: ${opts.voice.brief}.`] : []),
+    '',
+    'Example. Sentence: "Moreover, this platform plays a crucial role in fostering seamless collaboration." Rewrite: "The platform makes it easier for the team to work together."',
+    '',
+    'Reply with the rewritten sentence only. No quotes, no labels, no explanation.',
+  ].join('\n');
+
+  const parts: string[] = [];
+  if (before) parts.push(`Previous sentence, for tone only (do not rewrite it): ${before}`);
+  parts.push(`Sentence to rewrite: ${masked}`);
+  if (issues.length) parts.push(`What reads stiff: ${issues.join('; ')}`);
+  if (opts.register === 'sample' && opts.voice?.excerpts.length) {
+    parts.push(`The author's own writing, for style only:\n${opts.voice.excerpts.map((e) => `> ${e}`).join('\n')}`);
+  }
+  if (opts.strictReasons?.length) parts.push(`Your previous answer was rejected: ${opts.strictReasons.join('; ')}. Follow the rules exactly.`);
+  parts.push('Rewritten sentence:');
+
+  return { system, user: parts.join('\n\n'), targets: [{ key: 'S1', sentenceId: id, masked, slots, offset: 0 }] };
+}
+
+/** Pulls the sentence out of a small model's reply, tolerating labels and quotes. */
+export function parseSentenceResponse(text: string): string | undefined {
+  for (const raw of text.split(/\r?\n/)) {
+    let line = raw.trim();
+    if (!line) continue;
+    line = line.replace(/^(?:[*_`>#-]+\s*)?(?:rewritten sentence|rewrite|rewritten|sentence|output|answer|s1)\s*[*_`]*\s*[:.)-]\s*[*_`]*\s*/i, '');
+    line = line.replace(/^["“'«]+|["”'»]+$/g, '').trim();
+    if (line) return line;
+  }
+  return undefined;
 }

@@ -1,17 +1,13 @@
 // Browser smoke test against `vite preview` and scripts/mock-llm.mjs.
 // Usage: node tests/e2e/flow.mjs [baseUrl] [chromiumPath]
 import { chromium } from 'playwright-core';
+import { checker, cleanSample, copyOutput, rewriteWithLocalServer, trackCsp, waitDone } from './helpers.mjs';
 
 const base = process.argv[2] ?? 'http://localhost:4173/plainhand/';
 const executablePath = process.argv[3] ?? process.env.CHROMIUM_PATH;
 const shots = process.env.SHOTS_DIR ?? '/tmp';
-
 const browser = await chromium.launch({ executablePath });
-const failures = [];
-const check = (ok, label) => {
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}`);
-  if (!ok) failures.push(label);
-};
+const { check, failures } = checker();
 
 async function run(viewport, scheme) {
   const context = await browser.newContext({ viewport, colorScheme: scheme });
@@ -20,10 +16,7 @@ async function run(viewport, scheme) {
   const errors = [];
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.addInitScript(() => {
-    window.__csp = [];
-    document.addEventListener('securitypolicyviolation', (e) => window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`));
-  });
+  await trackCsp(page);
   return { context, page, errors };
 }
 
@@ -32,36 +25,29 @@ async function run(viewport, scheme) {
   await page.goto(base);
   check((await page.title()) === 'Plainhand', 'title');
   check((await page.locator('meta[http-equiv="Content-Security-Policy"]').count()) === 1, 'CSP meta present');
+  check(await page.locator('.strunk img').evaluate((img) => img.complete && img.naturalWidth > 0), 'Strunk scan loads');
 
-  await page.getByRole('button', { name: 'try a sample' }).click();
-  await page.screenshot({ path: `${shots}/ph-empty.png` });
-  await page.keyboard.press('Control+Enter');
-  await page.waitForSelector('.manuscript');
-  const status = await page.locator('.status .line').textContent();
-  check(/fixes made, \d+ stiff sentences left/.test(status ?? ''), `rule pass status: ${status}`);
-  check((await page.locator('.manuscript del').count()) > 0, 'deletions shown');
-  check((await page.locator('.manuscript .flag').count()) > 0, 'flags shown');
+  await cleanSample(page);
+  const counts = await page.locator('.sheet .counts').textContent();
+  check(/\d+ sentences? changed · \d+ left to rewrite · \d+ entr(y|ies) on the sheet/.test(counts.replace(/\s+/g, ' ')), `sheet counts: ${counts.replace(/\s+/g, ' ').trim()}`);
+  check((await page.locator('.manuscript del.removed').count()) > 0, 'deletions shown');
+  check((await page.locator('.manuscript .stiff').count()) > 0, 'stiff phrases marked');
   check((await page.locator('.manuscript del', { hasText: 'I hope this helps' }).count()) === 1, 'closer struck out');
-  await page.screenshot({ path: `${shots}/ph-review.png`, fullPage: true });
+  check((await page.locator('.sheet .group h3').first().textContent()).startsWith('To rewrite'), 'sheet lists work to do first');
 
-  await page.locator('.manuscript .mark').first().click();
-  check(await page.locator('.note').isVisible(), 'margin note opens');
-  await page.screenshot({ path: `${shots}/ph-note.png` });
+  await page.locator('.sheet .entry').first().click();
+  check((await page.locator('.sheet .card').count()) === 1, 'sheet entry opens the sentence card');
 
-  await page.getByRole('tab', { name: 'With my API key' }).click();
-  await page.getByLabel('Provider').selectOption('local');
-  await page.getByLabel('Server URL').fill('http://127.0.0.1:8787/v1');
-  await page.getByRole('button', { name: 'List models' }).click();
-  await page.waitForFunction(() => document.querySelectorAll('#model-list option').length > 0, null, { timeout: 5000 });
-  check((await page.getByPlaceholder('Model id').inputValue()) === 'mock-editor', 'model list loaded');
+  await page.getByRole('radio', { name: 'Clean copy' }).click();
+  check((await page.locator('.manuscript del').count()) === 0, 'clean copy hides marks');
+  await page.getByRole('radio', { name: 'Changes' }).click();
 
-  await page.getByRole('button', { name: /^Rewrite \d+ sentences? with/ }).click();
-  await page.waitForFunction(() => document.querySelector('.status .line')?.textContent?.startsWith('Done.'), null, { timeout: 30000 });
-  const done = await page.locator('.status .line').textContent();
-  check(/Done\. \d+ changes in \d+ paragraphs/.test(done ?? ''), `done status: ${done}`);
+  await rewriteWithLocalServer(page, 'http://127.0.0.1:8787/v1', 'mock-editor');
+  await waitDone(page);
+  const headline = await page.locator('.sheet .headline').textContent();
+  check(/\d+ sentences changed\. Read it through\./.test(headline), `done headline: ${headline}`);
 
-  await page.getByRole('button', { name: 'Copy' }).click();
-  const output = await page.evaluate(() => navigator.clipboard.readText());
+  const output = await copyOutput(page);
   for (const kept of ['64%', '1,200', '2025', '3 steps instead of 7', '## ']) check(output.includes(kept), `output keeps "${kept}"`);
   check(!/In today's fast-paced/.test(output), 'stock opener rewritten');
   check(!output.includes('—'), 'no em dashes in output');
@@ -71,14 +57,17 @@ async function run(viewport, scheme) {
   await first.click();
   if ((await first.getAttribute('aria-pressed')) !== 'true') await first.click();
   await page.keyboard.press('r');
-  check((await first.locator('.rejected').count()) === 1, 'R rejects the selected change');
+  check((await first.locator('.undone').count()) === 1, 'R undoes the selected change');
   await page.keyboard.press('a');
-  check((await first.locator('del, ins, .rejected').count()) === 0, 'A accepts the selected change');
+  check((await first.locator('del, ins, .undone').count()) === 0, 'A keeps the selected change');
 
+  await page.locator('.sheet summary', { hasText: 'Download' }).click();
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download .docx' }).click();
-  const file = await download;
-  check(file.suggestedFilename() === 'plainhand.docx', 'docx download');
+  await page.getByRole('menuitem', { name: /Word document/ }).click();
+  check((await download).suggestedFilename() === 'plainhand.docx', 'docx download');
+
+  await page.locator('.sheet').getByRole('button', { name: 'Start over' }).click();
+  check((await page.locator('#draft').count()) === 1, 'start over returns to an empty editor');
 
   check((await page.evaluate(() => window.__csp)).length === 0, `no CSP violations ${JSON.stringify(await page.evaluate(() => window.__csp))}`);
   check(errors.length === 0, `no console errors ${JSON.stringify(errors)}`);
@@ -88,12 +77,12 @@ async function run(viewport, scheme) {
 {
   const { context, page, errors } = await run({ width: 390, height: 844 }, 'dark');
   await page.goto(base);
-  await page.getByRole('button', { name: 'try a sample' }).click();
-  await page.getByRole('button', { name: /Clean it up/ }).click();
-  await page.waitForSelector('.manuscript');
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
-  check(!overflow, 'no horizontal scroll at 390px');
-  await page.locator('.manuscript .mark').nth(1).click();
+  await cleanSample(page);
+  check(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)), 'no horizontal scroll at 390px');
+  const btn = await page.getByRole('button', { name: /^Rewrite \d+ sentences?/ }).boundingBox();
+  check(btn && btn.height >= 44, 'primary button is a 44px touch target');
+  await page.getByRole('button', { name: 'Sheet', exact: true }).click();
+  check(await page.locator('.sheet .entries').first().isVisible(), 'sheet expands on mobile');
   await page.screenshot({ path: `${shots}/ph-mobile-dark.png` });
   check(errors.length === 0, `mobile: no console errors ${JSON.stringify(errors)}`);
   await context.close();

@@ -1,6 +1,4 @@
-import '@fontsource-variable/newsreader/opsz.css';
-import '@fontsource/instrument-sans/400.css';
-import '@fontsource/instrument-sans/600.css';
+import '@fontsource-variable/schibsted-grotesk/wght.css';
 import '../app/app.css';
 import './doc.css';
 

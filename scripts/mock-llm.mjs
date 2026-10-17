@@ -39,7 +39,10 @@ createServer((req, res) => {
   req.on('end', async () => {
     const { messages } = JSON.parse(body);
     const user = messages.find((m) => m.role === 'user').content;
-    const lines = [...user.matchAll(/<(S\d+)>(.*?)<\/\1>/gs)].map(([, key, text]) => `${key}: ${rewrite(text)}`);
+    const single = /^Sentence to rewrite: (.*)$/m.exec(user);
+    const lines = single
+      ? [rewrite(single[1])]
+      : [...user.matchAll(/<(S\d+)>(.*?)<\/\1>/gs)].map(([, key, text]) => `${key}: ${rewrite(text)}`);
     await new Promise((r) => setTimeout(r, delay));
     res.writeHead(200, { ...cors, 'content-type': 'text/event-stream' });
     for (const piece of lines.join('\n').match(/.{1,12}/gs) ?? []) {

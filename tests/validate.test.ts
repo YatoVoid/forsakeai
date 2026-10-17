@@ -88,8 +88,41 @@ describe('validateRewrite', () => {
 
 describe('script detection', () => {
   it('treats kanji-heavy and kana-heavy Japanese as the same script', async () => {
-    const { dominantScript } = await import('../src/lib/lang');
+    const { dominantScript } = await import('../src/lib/script');
     expect(dominantScript('東京大学研究所')).toBe(dominantScript('これはとてもいいですね'));
     expect(dominantScript('Привет мир')).toBe('Cyrillic');
+  });
+});
+
+describe('meaning checks', () => {
+  const eng = () => 'eng';
+  it('rejects a rewrite that drops most of the content (from the real essay run)', () => {
+    const original = 'Moreover, studies suggest that remote employees often report higher levels of job satisfaction, which in turn fosters greater loyalty and reduces turnover.';
+    const rewrite = 'This newfound independence allows individuals to tailor their work schedules around their best productivity times, enhancing job satisfaction and reducing attrition.';
+    expect(validateRewrite(original, rewrite, 'eng', eng)).toContain('changed the meaning');
+  });
+
+  it('rejects a rewrite of the neighbouring sentence', () => {
+    const original = 'Additionally, many organizations are adopting hybrid models that combine flexible remote work with regular in-person interaction.';
+    const neighbour = 'Looking ahead, the future of work will likely be characterized by continued experimentation and adaptation.';
+    const rewrite = 'Looking forward, the future of work will likely be characterized by continued experimentation and adaptation.';
+    const reasons = validateRewrite(original, rewrite, 'eng', eng, [neighbour]);
+    expect(reasons.some((r) => r === 'changed the meaning' || r === 'rewrote a neighbouring sentence')).toBe(true);
+  });
+
+  it('accepts a real paraphrase that keeps the content', () => {
+    const original = 'Ultimately, remote work is not just a trend; it is a testament to the resilience and adaptability of the modern workforce.';
+    const rewrite = "Remote work isn't merely a trend but a reflection of how our workforce has grown more resilient and better at adapting.";
+    expect(validateRewrite(original, rewrite, 'eng', eng)).toEqual([]);
+  });
+});
+
+describe('stock phrasing in rewrites', () => {
+  const eng = () => 'eng';
+  it('rejects a rewrite that swaps in a different stock phrase', () => {
+    expect(validateRewrite('Moreover, the tool helps teams.', 'Furthermore, the tool facilitates teamwork.', 'eng', eng)[0]).toMatch(/added stock phrasing/);
+  });
+  it('allows a rewrite that keeps a stock word the original already had', () => {
+    expect(validateRewrite('This is a pivotal idea.', 'This idea is still pivotal.', 'eng', eng)).toEqual([]);
   });
 });

@@ -212,6 +212,8 @@ export function createByokEngine(cfg: ByokConfig): Engine {
     kind: 'byok',
     label: `${info.label} · ${cfg.model}`,
     concurrency: info.concurrency,
+    // Local servers usually run small models that can't follow the passage format.
+    granularity: cfg.provider === 'local' ? 'sentence' : 'passage',
     complete: (req) => complete(cfg, req),
   };
 }

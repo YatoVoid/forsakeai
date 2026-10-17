@@ -1,32 +1,33 @@
 <script lang="ts">
+  import { ArrowRight, Monitor, Moon, Sun } from '@lucide/svelte';
   import { onMount, tick } from 'svelte';
   import Manuscript from '../editor/Manuscript.svelte';
-  import MarginNote from '../editor/MarginNote.svelte';
-  import EnginePanel from '../engines/EnginePanel.svelte';
-  import CheckerPanel from '../detector/CheckerPanel.svelte';
-  import StatusLine from '../status/StatusLine.svelte';
+  import SettingsDialog from '../engines/SettingsDialog.svelte';
+  import { EnginePrefs } from '../engines/prefs.svelte';
   import { download, type ExportFormat } from '../export/export';
   import { languageName } from '../pipeline/prompt';
   import { proposedText } from '../pipeline/parse';
-  import { SAMPLE } from './sample';
   import { readPageConfig } from './pageConfig';
+  import { SAMPLE } from './sample';
   import { Session } from './session.svelte';
-  import type { Dialect } from '../pipeline/dialect';
+  import StyleSheet from './StyleSheet.svelte';
 
   const session = new Session();
+  const prefs = new EnginePrefs();
   const pageConfig = readPageConfig();
   const home = import.meta.env.BASE_URL;
   let textarea = $state<HTMLTextAreaElement | null>(null);
   let page = $state<HTMLDivElement | null>(null);
-  let noteTop = $state(0);
+  let settings = $state<{ open: (andRun?: boolean) => void } | null>(null);
   let copied = $state(false);
+  let view = $state<'changes' | 'clean'>('changes');
   let theme = $state<'system' | 'light' | 'dark'>('system');
 
-  const selected = $derived(session.selectedId ? session.find(session.selectedId) : undefined);
   const showDoc = $derived(session.phase !== 'empty' && session.doc !== null);
   const reviewable = $derived(session.phase === 'review' || session.phase === 'done' || session.phase === 'paused');
   const workingIds = $derived(session.phase === 'running' && session.selectedId ? [session.selectedId] : []);
   const langLabel = $derived(session.doc ? languageName(session.doc.lang) : '');
+  const words = $derived(session.input.trim() ? session.input.trim().split(/\s+/).length : 0);
 
   onMount(() => {
     try {
@@ -54,31 +55,6 @@
     applyTheme(theme === 'system' ? 'dark' : theme === 'dark' ? 'light' : 'system');
   }
 
-  let layoutTick = $state(0);
-
-  $effect(() => {
-    if (!page) return;
-    const column = page.querySelector('.column');
-    if (!column) return;
-    const observer = new ResizeObserver(() => layoutTick++);
-    observer.observe(column);
-    return () => observer.disconnect();
-  });
-
-  $effect(() => {
-    const id = session.selectedId;
-    void session.doc;
-    void session.phase;
-    void layoutTick;
-    if (!id || !page) return;
-    void tick().then(() => {
-      const el = page?.querySelector<HTMLElement>(`[data-id="${id}"]`);
-      const host = page?.querySelector<HTMLElement>('.sheet');
-      if (!el || !host) return;
-      noteTop = el.getBoundingClientRect().top - host.getBoundingClientRect().top;
-    });
-  });
-
   $effect(() => {
     const id = session.selectedId;
     if (session.phase !== 'running' || !id) return;
@@ -90,13 +66,21 @@
     return session.doc.blocks.flatMap((b) => b.sentences).filter((s) => proposedText(s) !== s.source || s.stiff).map((s) => s.id);
   }
 
+  function jumpTo(id: string) {
+    view = 'changes';
+    session.selectedId = id;
+    void tick().then(() => {
+      const el = page?.querySelector<HTMLElement>(`[data-id="${id}"]`);
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el?.focus({ preventScroll: true });
+    });
+  }
+
   function step(dir: 1 | -1) {
     const ids = changedIds();
     if (!ids.length) return;
     const at = session.selectedId ? ids.indexOf(session.selectedId) : -1;
-    const next = ids[(at + dir + ids.length) % ids.length]!;
-    session.selectedId = next;
-    page?.querySelector<HTMLElement>(`[data-id="${next}"]`)?.focus();
+    jumpTo(ids[(at + dir + ids.length) % ids.length]!);
   }
 
   async function copy() {
@@ -113,7 +97,31 @@
     if (session.doc) download(session.doc, format);
   }
 
+  /** Runs with the saved engine, or opens settings first when something is missing. */
+  async function rewrite() {
+    const needsVoice = session.register === 'sample' && !session.voice;
+    if (!prefs.chosen || needsVoice) {
+      settings?.open(true);
+      return;
+    }
+    if (prefs.mode === 'device') {
+      await session.probeDevice();
+      if (!session.probe?.ok) {
+        settings?.open(true);
+        return;
+      }
+      await session.rewriteOnDevice();
+    } else {
+      if (prefs.keyProblem) {
+        settings?.open(true);
+        return;
+      }
+      await session.rewriteWithKey(prefs.byok());
+    }
+  }
+
   function onKeydown(e: KeyboardEvent) {
+    if (document.querySelector('dialog[open]')) return;
     const typing = e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable]');
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && session.phase === 'empty') {
       e.preventDefault();
@@ -136,13 +144,13 @@
     e.preventDefault();
   }
 
-  async function enableNotifications(e: Event) {
-    const on = (e.currentTarget as HTMLInputElement).checked;
-    if (on && 'Notification' in window && Notification.permission === 'default') {
-      session.notifyWhenDone = (await Notification.requestPermission()) === 'granted';
-    } else {
-      session.notifyWhenDone = on && 'Notification' in window && Notification.permission === 'granted';
+  function cleanUp() {
+    if (!words) {
+      textarea?.focus();
+      session.say('Paste a draft first, or try the sample.', null, 'quiet');
+      return;
     }
+    void session.clean();
   }
 
   function trySample() {
@@ -153,187 +161,157 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="page" bind:this={page}>
-  <header class="masthead">
-    <a class="wordmark" href={home} aria-label="Plainhand home">Plainhand</a>
-    <div class="tools">
-      {#if langLabel && showDoc}<span class="chip">{langLabel} · detected</span>{/if}
-      <button class="btn btn-quiet" onclick={cycleTheme} aria-label="Theme: {theme}. Change theme">
-        {theme === 'system' ? 'Auto' : theme === 'dark' ? 'Dark' : 'Light'}
-      </button>
-    </div>
-  </header>
+<div class="app" bind:this={page}>
+  <div class="main">
+    <header class="masthead">
+      <a class="wordmark" href={home} aria-label="Plainhand home">Plainhand</a>
+      <nav class="tools" aria-label="Site">
+        {#if langLabel && showDoc}<span class="lang">{langLabel}</span>{/if}
+        <a href="{home}privacy.html">Privacy</a>
+        <button class="btn btn-ghost" onclick={cycleTheme} aria-label="Theme: {theme}. Change theme" title="Theme: {theme}">
+          {#if theme === 'dark'}<Moon class="icon" aria-hidden="true" />{:else if theme === 'light'}<Sun class="icon" aria-hidden="true" />{:else}<Monitor class="icon" aria-hidden="true" />{/if}
+        </button>
+      </nav>
+    </header>
 
-  {#if session.resumable && session.phase === 'empty'}
-    <div class="banner" role="region" aria-label="Unfinished edit">
-      <p>You left mid-edit. Picking up at passage {session.resumable.chunksDone + 1} of {session.resumable.chunksTotal}.</p>
-      <div>
-        <button class="btn" onclick={() => session.restore(session.resumable!)}>Resume</button>
-        <button class="btn btn-quiet" onclick={() => session.discardResumable()}>Discard</button>
+    {#if session.resumable && session.phase === 'empty'}
+      <div class="banner" role="region" aria-label="Unfinished edit">
+        <p><b>You left mid-edit.</b> {session.resumable.chunksDone} of {session.resumable.chunksTotal} passages are done.</p>
+        <div class="banner-actions">
+          <button class="btn btn-primary" onclick={() => session.restore(session.resumable!)}>Pick up where I left off</button>
+          <button class="btn btn-ghost" onclick={() => session.discardResumable()}>Discard</button>
+        </div>
       </div>
-    </div>
-  {/if}
+    {/if}
 
-  <main class="sheet">
-    <div class="column">
-      <StatusLine status={session.status} />
-
-      {#if session.phase === 'empty'}
-        {#if pageConfig}
-          <div class="intro" lang={pageConfig.htmlLang}>
-            <h1>{pageConfig.heading}</h1>
-            <p>{pageConfig.intro}</p>
-          </div>
-        {/if}
+    {#if session.phase === 'empty'}
+      <section class="intro" lang={pageConfig?.htmlLang}>
+        {#if pageConfig}<h1>{pageConfig.heading}</h1>{:else}<h1><span>Paste a draft.</span> <span>See every change.</span></h1>{/if}
+        <p>
+          {pageConfig?.intro ??
+            'Plainhand fixes stock AI phrasing, rewrites what still reads stiff, and writes every decision on a style sheet you can check, keep or undo. Nothing leaves your browser unless you use your own API key.'}
+        </p>
+      </section>
+      <div class="draft-box">
         <label class="visually-hidden" for="draft">Your draft</label>
         <textarea
           id="draft"
-          class="draft"
           bind:this={textarea}
           bind:value={session.input}
-          placeholder={pageConfig?.placeholder ?? 'Paste your draft.'}
+          placeholder={pageConfig?.placeholder ?? 'Paste your draft here. Markdown headings, lists and links are kept.'}
           spellcheck="true"
         ></textarea>
-        <div class="actions">
-          <button class="btn btn-primary" onclick={() => session.clean()} disabled={!session.input.trim()}>
-            Clean it up <kbd>Ctrl Enter</kbd>
-          </button>
-          {#if !session.input.trim()}
-            <span class="hint">Nothing here yet. Paste something stiff, or <button class="btn btn-quiet inline" onclick={trySample}>try a sample</button>.</span>
-          {/if}
+        <div class="draft-foot">
+          <span class="meta">
+            {#if words}{words.toLocaleString()} words · <kbd>Ctrl</kbd> <kbd>Enter</kbd>{:else}<button class="link" onclick={trySample}>Try a sample draft</button>{/if}
+          </span>
+          <button class="btn btn-primary" onclick={cleanUp}>Clean it up <ArrowRight class="icon" aria-hidden="true" /></button>
         </div>
-      {:else if session.doc}
-        {#if session.phase === 'review' || session.phase === 'paused'}
-          {#if session.phase === 'paused' && session.status.tone !== 'error' && session.chunksTotal}
-            <div class="actions">
-              <button class="btn btn-primary" onclick={() => session.resume()}>Resume</button>
-            </div>
-          {/if}
-          {#if session.remaining > 0}
-            <EnginePanel {session} />
-          {/if}
+      </div>
+    {:else if session.doc}
+      <div class="doc-bar">
+        <div class="view" role="radiogroup" aria-label="Show">
+          <button role="radio" aria-checked={view === 'changes'} class:on={view === 'changes'} onclick={() => (view = 'changes')}>Changes</button>
+          <button role="radio" aria-checked={view === 'clean'} class:on={view === 'clean'} onclick={() => (view = 'clean')}>Clean copy</button>
+        </div>
+        {#if view === 'changes'}
+          <p class="legend" aria-label="Key">
+            <span><del class="removed">removed</del></span>
+            <span><ins class="added">added</ins></span>
+            <span><span class="stiff">still stiff</span></span>
+          </p>
         {/if}
+      </div>
+      <Manuscript doc={session.doc} {view} selectedId={session.selectedId} activeIds={workingIds} onSelect={(id) => (session.selectedId = id)} />
+    {/if}
 
-        {#if session.phase === 'running'}
-          <div class="actions">
-            <button class="btn" onclick={() => session.pause()}>Pause</button>
-            <label class="check">
-              <input type="checkbox" checked={session.notifyWhenDone} onchange={enableNotifications} />
-              Notify me when it's done
-            </label>
-          </div>
-        {/if}
+  </div>
 
-        <CheckerPanel {session} />
-
-        <Manuscript doc={session.doc} selectedId={session.selectedId} activeIds={workingIds} onSelect={(id) => (session.selectedId = id)} />
-
-        <div class="toolbar">
-          <button class="btn btn-primary" onclick={copy}>{copied ? 'Copied' : 'Copy'}</button>
-          <button class="btn" onclick={() => exportAs('docx')}>Download .docx</button>
-          <button class="btn" onclick={() => exportAs('md')}>.md</button>
-          <button class="btn" onclick={() => exportAs('txt')}>.txt</button>
-          {#if session.checkerEnabled}
-            <button class="btn" onclick={() => session.startCheck()} disabled={session.phase === 'running' || session.check.kind === 'working'}>Check it</button>
-          {/if}
-          {#if session.doc.lang === 'eng'}
-            <label class="spelling">
-              <span>Spelling</span>
-              <select class="input" value={session.dialect} disabled={session.phase === 'running'} onchange={(e) => session.setDialect(e.currentTarget.value as Dialect)}>
-                <option value="as-written">As written</option>
-                <option value="us">US</option>
-                <option value="uk">UK</option>
-              </select>
-            </label>
-          {/if}
-          <span class="spacer"></span>
-          {#if session.changes && reviewable}
-            <button class="btn btn-quiet" onclick={() => session.decideAll('accepted')}>Accept all</button>
-            <button class="btn btn-quiet" onclick={() => session.decideAll('rejected')}>Reject all</button>
-          {/if}
-          <button class="btn btn-quiet" onclick={() => session.editDraft()} disabled={session.phase === 'running'}>Edit draft</button>
-        </div>
-      {/if}
-    </div>
-
-    <aside class="rail" aria-label="Notes">
-      {#if selected && showDoc}
-        <div class="note-slot" style:--top="{noteTop}px">
-          <MarginNote
-            sentence={selected}
-            working={workingIds.includes(selected.id)}
-            onDecide={(d) => session.decide(selected.id, d)}
-            onClose={() => (session.selectedId = null)}
-          />
-        </div>
-      {:else if showDoc && reviewable}
-        <p class="rail-hint">Click a marked sentence to see why. <kbd>J</kbd> <kbd>K</kbd> move between them, <kbd>A</kbd> accepts, <kbd>R</kbd> rejects.</p>
-      {/if}
-    </aside>
-  </main>
+  <StyleSheet
+    {session}
+    {prefs}
+    {copied}
+    onCopy={copy}
+    onExport={exportAs}
+    onSettings={(run) => settings?.open(run)}
+    onRewrite={rewrite}
+    onJump={jumpTo}
+  />
 
   <footer class="foot">
-    <p>Your text stays in this browser. On-device mode never sends it anywhere. With your own API key, it goes straight to that provider.</p>
-    <p>
-      Rule list adapted from Wikipedia's <a href="https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing" rel="noopener noreferrer" target="_blank">Signs of AI writing</a> (CC BY-SA 4.0).
-      No tool can promise how a detector will score your text. Read it before you send it.
-    </p>
-    <p>
-      <a href="{home}privacy.html">Privacy</a> ·
-      <a href="https://github.com/YatoVoid/plainhand" rel="noopener noreferrer">Source code</a> ·
-      In other languages:
-      <a href="{home}de/" hreflang="de" lang="de">Deutsch</a>,
-      <a href="{home}es/" hreflang="es" lang="es">Español</a>,
-      <a href="{home}fr/" hreflang="fr" lang="fr">Français</a>,
+    <p>Stock-phrase list adapted from Wikipedia’s <a href="https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing" rel="noopener noreferrer" target="_blank">Signs of AI writing</a> (CC BY-SA 4.0). No tool can promise how a detector will score your text.</p>
+    <p class="foot-links">
+      <a href="https://github.com/YatoVoid/plainhand" rel="noopener noreferrer">Source code</a>
+      <a href="{home}de/" hreflang="de" lang="de">Deutsch</a>
+      <a href="{home}es/" hreflang="es" lang="es">Español</a>
+      <a href="{home}fr/" hreflang="fr" lang="fr">Français</a>
       <a href="{home}pt/" hreflang="pt" lang="pt">Português</a>
     </p>
   </footer>
 </div>
 
+<SettingsDialog
+  bind:this={settings}
+  {session}
+  {prefs}
+  onDone={(run) => {
+    if (run) void rewrite();
+  }}
+/>
+
 <style>
-  .page {
-    max-width: calc(var(--measure) + var(--rail) + 6rem);
+  .app {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--sheet-w);
+    grid-template-rows: 1fr auto;
+    min-height: 100dvh;
+  }
+
+  .main {
+    grid-column: 1;
+    grid-row: 1;
+    width: 100%;
+    max-width: calc(var(--measure) + 6rem);
     margin: 0 auto;
-    padding: 0 var(--gutter) 3rem;
+    padding: 0 clamp(var(--gutter), 4vw, 3rem) 3rem;
   }
 
   .masthead {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
-    padding: 1.4rem 0 0.9rem;
+    padding: 1.1rem 0;
+    margin-bottom: clamp(1.5rem, 4vh, 3rem);
   }
 
   .wordmark {
-    font-family: var(--serif);
-    font-size: var(--step-2);
-    font-weight: 500;
-    letter-spacing: -0.015em;
+    font-size: var(--t-lg);
+    font-weight: 850;
+    letter-spacing: -0.03em;
     text-decoration: none;
   }
 
   .tools {
     display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
+    align-items: center;
+    gap: 1rem;
+    font-size: var(--t-sm);
   }
 
-  .chip {
-    color: var(--ink-soft);
+  .tools a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    color: var(--ink-2);
+    text-decoration: none;
   }
 
-  .intro h1 {
-    font-family: var(--serif);
-    font-size: var(--step-2);
-    font-weight: 600;
-    line-height: 1.25;
-    margin: 0.75rem 0 0.35rem;
+  .tools a:hover {
+    color: var(--accent);
   }
 
-  .intro p {
-    margin: 0 0 0.75rem;
-    max-width: 60ch;
-    color: var(--ink-soft);
+  .lang {
+    color: var(--ink-2);
   }
 
   .banner {
@@ -341,161 +319,188 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.75rem 0;
-    border-top: 1px solid var(--rule);
+    gap: 0.75rem 1.5rem;
+    padding: 0.9rem 1rem;
+    margin-bottom: 2rem;
+    border: 1px solid var(--ink);
+    border-radius: var(--radius);
   }
 
   .banner p {
     margin: 0;
   }
 
-  .sheet {
-    position: relative;
-    display: grid;
-    grid-template-columns: minmax(0, var(--measure)) var(--rail);
-    gap: 3rem;
+  .banner-actions {
+    display: flex;
+    gap: 0.4rem;
   }
 
-  .column {
-    min-width: 0;
+  .intro h1 span {
+    display: block;
   }
 
-  .draft {
+  .intro h1 {
+    margin: 0 0 0.9rem;
+    font-size: var(--t-display);
+    font-weight: 850;
+    line-height: 1;
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+  }
+
+  .intro p {
+    margin: 0 0 2rem;
+    max-width: 54ch;
+    font-size: var(--t-text);
+    line-height: 1.6;
+    color: var(--ink-2);
+  }
+
+  .draft-box {
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--radius);
+    background: var(--page);
+  }
+
+  .draft-box:focus-within {
+    border-color: var(--ink);
+  }
+
+  textarea {
     display: block;
     width: 100%;
-    min-height: 55vh;
+    min-height: 42vh;
     resize: vertical;
     border: 0;
-    border-bottom: 1px solid var(--rule);
     background: transparent;
-    font-family: var(--serif);
-    font-size: var(--step-0);
+    font-size: var(--t-text);
     line-height: 1.7;
-    padding: 0.5rem 0 1rem;
+    padding: 1.1rem 1.2rem;
   }
 
-  .draft:focus {
+  textarea:focus {
     outline: none;
-    border-bottom-color: var(--ink);
   }
 
-  .draft::placeholder {
-    color: var(--ink-soft);
-    font-style: italic;
+  textarea::placeholder {
+    color: var(--ink-2);
   }
 
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.9rem;
-    margin: 1rem 0 1.25rem;
-  }
-
-  .hint {
-    color: var(--ink-soft);
-  }
-
-  .inline {
-    padding: 0;
-    color: var(--ink);
-  }
-
-  .check {
+  .draft-foot {
     display: flex;
     align-items: center;
-    gap: 0.45rem;
-    color: var(--ink-soft);
-  }
-
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 2rem;
-    padding-top: 1rem;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.55rem 0.6rem 0.55rem 1.2rem;
     border-top: 1px solid var(--rule);
   }
 
-  .spacer {
-    flex: 1;
+  .meta {
+    font-size: var(--t-sm);
+    color: var(--ink-2);
   }
 
-  .spelling {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    color: var(--ink-soft);
-  }
-
-  .spelling select {
-    width: auto;
-    padding-block: 0.35em;
-  }
-
-  .rail {
-    position: relative;
-    padding-top: 3.4rem;
-  }
-
-  .note-slot {
-    position: absolute;
-    top: max(3.4rem, var(--top));
-    left: 0;
-    right: 0;
-    transition: top 150ms ease-out;
-  }
-
-  .rail-hint {
-    margin: 0;
-    color: var(--ink-soft);
-    font-size: 0.75rem;
+  .doc-bar {
     position: sticky;
-    top: 4rem;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem 1.25rem;
+    padding: 0.6rem 0;
+    margin-bottom: 1.5rem;
+    background: var(--page);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .view {
+    display: inline-grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 2px;
+    border: 1px solid var(--rule-strong);
+    border-radius: var(--radius);
+  }
+
+  .view button {
+    min-height: 2.75rem;
+    padding: 0.3rem 0.85rem;
+    border: 0;
+    border-radius: 2px;
+    background: none;
+    font-size: var(--t-sm);
+    font-weight: 600;
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+
+  .view button.on {
+    background: var(--ink);
+    color: var(--page);
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 1rem;
+    margin: 0;
+    font-size: var(--t-sm);
   }
 
   .foot {
-    margin-top: 4rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--rule);
-    color: var(--ink-soft);
-    font-size: 0.72rem;
-    max-width: var(--measure);
+    grid-column: 1;
+    width: 100%;
+    max-width: calc(var(--measure) + 6rem);
+    margin: 0 auto;
+    padding: 1rem clamp(var(--gutter), 4vw, 3rem) 2rem;
+    color: var(--ink-2);
   }
 
   .foot p {
-    margin: 0 0 0.4rem;
+    font-size: var(--t-xs);
+  }
+
+  .foot p {
+    margin: 0;
+  }
+
+  .foot p:first-child {
+    padding-top: 1rem;
+    border-top: 1px solid var(--rule);
+  }
+
+  .foot-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 1.1rem;
+  }
+
+  .foot-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
   }
 
   @media (max-width: 960px) {
-    .sheet {
+    .app {
       grid-template-columns: minmax(0, 1fr);
-      gap: 0;
     }
 
-    .rail {
-      padding: 0;
+    .app {
+      padding-bottom: 9rem;
     }
 
-    .rail-hint {
-      display: none;
+    .app:has(:global(.col.idle)) {
+      padding-bottom: 0;
     }
 
-    .note-slot {
-      position: fixed;
-      top: auto;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      z-index: 10;
-      max-height: 45vh;
-      overflow-y: auto;
-      padding: 1rem var(--gutter) 1.25rem;
-      background: var(--paper);
-      border-top: 1px solid var(--ink);
-      transition: none;
+    .masthead {
+      margin-bottom: 1.5rem;
+    }
+
+    textarea {
+      min-height: 36vh;
     }
   }
 </style>

@@ -1,4 +1,5 @@
-import { dominantScript } from '../lib/lang';
+import { runRules } from '../engines/rules/run';
+import { dominantScript } from '../lib/script';
 import { PLACEHOLDER, placeholderCounts } from './protect';
 
 export type LangDetect = (text: string, only?: string[]) => string;
@@ -10,6 +11,30 @@ const MIN_CHARS_FOR_LANG_CHECK = 90;
 const DRIFT_TARGETS = ['eng', 'cmn', 'spa', 'fra', 'deu', 'por', 'rus'];
 /** In these languages capitalization doesn't mark names, so the new-name check would misfire. */
 const SKIP_NAME_CHECK = new Set(['deu', 'ltz']);
+
+const STOPWORDS = new Set(
+  'about above after again against also although among another because been before being below between both cannot could does doing down during each even every from further have having here into itself just more most much must only other over same should since some such than that their them then there these they this those through under until very were what when where which while will with within without would your yours'.split(' '),
+);
+/** Below this share of the original's content words, a rewrite has probably changed the meaning. */
+const MIN_CONTENT_OVERLAP = 0.25;
+const MIN_CONTENT_WORDS = 5;
+
+/** Crude stems: lower-cased first five letters of words four letters or longer, minus stopwords. */
+export function contentStems(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const w of stripTokens(text).toLowerCase().match(/\p{L}[\p{L}\p{M}'’-]*/gu) ?? []) {
+    if (w.length < 4 || STOPWORDS.has(w)) continue;
+    out.add(w.slice(0, 5));
+  }
+  return out;
+}
+
+function overlap(source: Set<string>, other: Set<string>): number {
+  if (!source.size) return 1;
+  let hit = 0;
+  for (const s of source) if (other.has(s)) hit++;
+  return hit / source.size;
+}
 
 const words = (text: string) => text.replace(PLACEHOLDER, ' X ').split(/\s+/).filter(Boolean);
 const stripTokens = (text: string) => text.replace(PLACEHOLDER, ' ');
@@ -25,7 +50,13 @@ function capitalizedNames(text: string): string[] {
   return names;
 }
 
-export function validateRewrite(original: string, rewrite: string, lang: string, detect: LangDetect): string[] {
+export function validateRewrite(
+  original: string,
+  rewrite: string,
+  lang: string,
+  detect: LangDetect,
+  neighbors: string[] = [],
+): string[] {
   const reasons: string[] = [];
   if (!rewrite.trim()) return ['empty rewrite'];
   if (/[\r\n]/.test(rewrite)) reasons.push('line break inside a sentence');
@@ -51,6 +82,21 @@ export function validateRewrite(original: string, rewrite: string, lang: string,
   const after = words(rewrite).length;
   if (before >= MIN_WORDS_FOR_LOWER_BOUND && after < before * 0.5) reasons.push('cut too much');
   if (after > Math.max(before * 1.8, before + 5)) reasons.push('grew too long');
+
+  const stemsBefore = contentStems(original);
+  const stemsAfter = contentStems(rewrite);
+  if (stemsBefore.size >= MIN_CONTENT_WORDS) {
+    const kept = overlap(stemsBefore, stemsAfter);
+    if (kept < MIN_CONTENT_OVERLAP) reasons.push('changed the meaning');
+    else if (neighbors.some((n) => overlap(stemsAfter, contentStems(n)) > overlap(stemsAfter, stemsBefore) + 0.15)) {
+      reasons.push('rewrote a neighbouring sentence');
+    }
+  }
+
+  // A rewrite may not swap one stock phrase for another ("Moreover" → "Furthermore").
+  const had = new Set(runRules(original, lang).flags.filter((f) => !f.fixed).map((f) => f.ruleId));
+  const added = runRules(rewrite, lang).flags.filter((f) => !f.fixed && !had.has(f.ruleId));
+  if (added.length) reasons.push(`added stock phrasing ("${added[0]!.match.trim()}")`);
 
   const plainOriginal = stripTokens(original).trim();
   const plainRewrite = stripTokens(rewrite).trim();

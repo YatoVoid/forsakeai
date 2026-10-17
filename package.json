@@ -14,9 +14,9 @@
   "dependencies": {
     "@anthropic-ai/sdk": "0.131.0",
     "@fontsource-variable/jetbrains-mono": "5.3.0",
-    "@fontsource-variable/newsreader": "5.3.0",
-    "@fontsource/instrument-sans": "5.3.0",
+    "@fontsource-variable/schibsted-grotesk": "5.3.0",
     "@huggingface/transformers": "4.3.0",
+    "@lucide/svelte": "1.50.0",
     "@mlc-ai/web-llm": "0.2.85",
     "diff-match-patch": "1.0.5",
     "fflate": "0.8.3",

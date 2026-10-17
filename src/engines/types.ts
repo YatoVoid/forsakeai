@@ -11,6 +11,11 @@ export interface Engine {
   label: string;
   /** How many chunks may run at once. */
   concurrency: number;
+  /**
+   * 'sentence' asks for one sentence per request. Small models (1.5B and
+   * under) can't follow the multi-sentence tagged format reliably.
+   */
+  granularity?: 'passage' | 'sentence';
   complete(req: CompletionRequest): Promise<string>;
 }
 

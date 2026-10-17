@@ -77,20 +77,19 @@
   }
 
   .verdict strong {
-    font-family: var(--serif);
-    font-size: var(--step-1);
+    font-family: var(--sans);
+    font-size: var(--t-lg);
     font-weight: 600;
   }
 
   .verdict span {
-    font-family: var(--mono);
-    font-size: 0.72rem;
-    color: var(--ink-soft);
+    font-size: var(--t-sm);
+    color: var(--ink-2);
     font-variant-numeric: tabular-nums;
   }
 
   .muted {
-    color: var(--ink-soft);
+    color: var(--ink-2);
   }
 
   ol {
@@ -108,9 +107,9 @@
     padding: 0;
     text-align: left;
     cursor: pointer;
-    font-family: var(--serif);
+    font-family: var(--sans);
     font-size: 0.95rem;
-    font-style: italic;
+    font-style: normal;
   }
 
   .quote:hover {
@@ -120,7 +119,7 @@
 
   .caveat {
     font-size: 0.72rem;
-    color: var(--ink-soft);
+    color: var(--ink-2);
   }
 
   .close {
@@ -128,6 +127,6 @@
     top: 0.6rem;
     right: 0;
     font-size: 0.72rem;
-    color: var(--ink-soft);
+    color: var(--ink-2);
   }
 </style>

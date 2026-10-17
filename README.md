@@ -15,6 +15,8 @@ It does not promise any detector score, and no tool honestly can.
 7. **Audit.** The rule list runs again over every rewrite. Deterministic leftovers are fixed in place; rewrites that still read stiff go back to the model once, and a failed audit keeps the first rewrite.
 8. **Spelling (optional).** English documents can be converted to US or UK spelling with a word list, before and after the rewrite.
 
+**Small models get one sentence at a time.** On-device models and local servers (Qwen 2.5 1.5B and smaller) can't follow the tagged passage format; in testing, a 1.5B model rewrote 0 of 7 sentences that way. They get a one-sentence prompt with only the previous sentence as context, because given the following sentence too they often rewrote that one instead. Validation also checks that a rewrite keeps at least a quarter of the original's content words, doesn't resemble a neighbouring sentence more than its own, and doesn't introduce a stock phrase the original didn't have.
+
 **Voice matching.** Choose "Like my writing sample" and paste 300 to 1,000 words of your own writing. Plainhand measures sentence length, contractions, person, punctuation habits and word length, and sends that description plus about 120 words of excerpts with each passage. The whole sample would not fit in a small on-device model's context.
 
 Each finished chunk is saved to IndexedDB. Reloading mid-job offers to resume, and a Web Lock stops two tabs from running the same job.
@@ -27,6 +29,10 @@ Each finished chunk is saved to IndexedDB. Reloading mid-job offers to resume, a
 | Your API key | Straight to the provider | OpenAI, Anthropic, Gemini, OpenRouter, Groq, Mistral, or a local Ollama / LM Studio server on `localhost`. Keys stay in this browser: in localStorage, optionally encrypted with a passphrase (PBKDF2 + AES-GCM) |
 
 WebGPU ships by default in Chrome and Edge, Safari 26+, and Firefox on Windows and macOS. Firefox on Linux doesn't have it yet; those users get the API-key path.
+
+## Design
+
+White page, near-black ink, one ultramarine accent, Schibsted Grotesk throughout, Lucide icons, 3px corners, hairlines instead of shadows. The right column is a copy editor's style sheet: every rule hit as an entry with a paragraph locator, why it reads stiff, and what it became. Changes are marked by line form so they read without colour: struck through (removed), double underline (added), wavy underline (still stiff). The only image is a public-domain scan of rule 13 from Strunk's *The Elements of Style* (1918).
 
 ## Checker (behind a flag)
 
@@ -41,7 +47,9 @@ node scripts/detector-score.mjs sample.jsonl int8 384 > scores-int8.jsonl     # 
 node scripts/detector-calibrate.mjs wasm=scores-int8.jsonl webgpu=scores-q4f16.jsonl
 ```
 
-`detector-calibrate.mjs` writes `src/detector/calibration.json` and `docs/detector-benchmark.md`. The plan's gate (lower false-positive rate than ZeroGPT) hasn't been checked; the flag stays until it is.
+`detector-calibrate.mjs` writes `src/detector/calibration.json` and `docs/detector-benchmark.md`. The plan's gate (lower false-positive rate than ZeroGPT) hasn't been checked; the flag stays until it is. Measured so far: English AUC 0.83–0.87 depending on the build, about 5–16% of human texts flagged at the strictest usable cutoff, German and Russian no better than chance. A 1.5B model pair improved English only slightly (AUC 0.85). The int8 and 4-bit builds score on different scales, so each has its own calibration.
+
+`tests/e2e/essay.mjs` runs a real essay through the app against `scripts/local-llm-server.mjs`, an OpenAI-compatible server that runs Qwen2.5-1.5B-Instruct (4-bit; the int8 ONNX build produces nonsense) on the CPU.
 
 ONNX Runtime's WASM files ship with the site under `/ort/` because the CSP blocks CDN and `blob:` scripts.
 
@@ -70,6 +78,7 @@ node tests/e2e/flow.mjs   http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/resume.mjs http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/long.mjs   http://localhost:4173/plainhand/ /path/to/chromium
 node tests/e2e/phase2.mjs http://localhost:4173/plainhand/ /path/to/chromium
+node tests/e2e/essay.mjs essay.md out/ http://127.0.0.1:8790/v1 Qwen2.5-1.5B-Instruct   # needs scripts/local-llm-server.mjs
 ```
 
 ## Security

@@ -1,6 +1,6 @@
 # Checker benchmark
 
-Generated 2026-10-17 by `scripts/detector-calibrate.mjs`. Score noise constant: 0.687 (from 778 texts split in half). Model pair: Qwen2.5-0.5B (observer) and Qwen2.5-0.5B-Instruct (performer), Binoculars score, first 384 tokens of each text.
+Generated 2026-10-17 by `scripts/detector-calibrate.mjs`. Score noise constant: 0.692 (from 998 texts split in half). Model pair: Qwen2.5-0.5B (observer) and Qwen2.5-0.5B-Instruct (performer), Binoculars score, first 384 tokens of each text.
 
 Data: a stratified sample of the dev split of the COLING 2025 multilingual machine-generated text task (`Jinyan1/COLING_2025_MGT_multingual`). English AI texts are limited to chat models (GPT-3.5, GPT-4, GPT-4o, Llama 3, Mixtral, Gemma, Cohere). Each language is split in half: one half fits the curve, the other half produces the numbers below.
 
@@ -16,6 +16,8 @@ The checker only says "likely AI-generated" below a cutoff that 2% of the fit-ha
 | wasm | Indonesian | 38 | 33 | 0.754 | 20.0% | 50.0% | 40.0% |
 | wasm | Russian | 35 | 40 | 0.208 | 15.8% | 0.0% | 0.0% |
 | wasm | Urdu | 27 | 30 | 0.856 | 7.7% | 62.5% | 38.5% |
+| webgpu | German | 30 | 30 | 0.594 | 6.3% | 37.5% | 0.0% |
+| webgpu | English | 60 | 60 | 0.813 | 15.6% | 67.6% | 56.3% |
 
 The held-out halves are small (about 15–75 human texts per language), so a 0% rate means none were seen, and the true rate could still be a few percent. A language whose held-out false-positive rate is above 5% never gets a "likely AI-generated" verdict in the app.
 

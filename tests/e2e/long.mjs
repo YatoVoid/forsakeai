@@ -1,6 +1,7 @@
 // 20,000-word document through the full pipeline. Needs `node scripts/mock-llm.mjs 8787` running.
 // Usage: node tests/e2e/long.mjs [baseUrl] [chromiumPath]
 import { chromium } from 'playwright-core';
+import { cleanText, rewriteWithLocalServer, waitDone } from './helpers.mjs';
 
 const base = process.argv[2] ?? 'http://localhost:4173/plainhand/';
 const executablePath = process.argv[3] ?? process.env.CHROMIUM_PATH;
@@ -16,21 +17,15 @@ const text = Array.from({ length: 220 }, (_, i) => para(i + 1)).join('\n\n');
 const words = text.split(/\s+/).length;
 
 await page.goto(base);
-await page.locator('#draft').fill(text);
 let t = Date.now();
-await page.getByRole('button', { name: /Clean it up/ }).click();
-await page.waitForSelector('.manuscript');
+await cleanText(page, text);
 const cleanMs = Date.now() - t;
 
-await page.getByRole('tab', { name: 'With my API key' }).click();
-await page.getByLabel('Provider').selectOption('local');
-await page.getByLabel('Server URL').fill('http://127.0.0.1:8787/v1');
-await page.getByPlaceholder('Model id').fill('mock-editor');
 t = Date.now();
-await page.getByRole('button', { name: /^Rewrite \d+ sentences? with/ }).click();
-await page.waitForFunction(() => document.querySelector('.status .line')?.textContent?.startsWith('Done.'), null, { timeout: 300000 });
+await rewriteWithLocalServer(page, 'http://127.0.0.1:8787/v1', 'mock-editor');
+await waitDone(page, 300000);
 const runMs = Date.now() - t;
-const status = await page.locator('.status .line').textContent();
+const status = await page.locator('.sheet .headline').textContent();
 
 console.log(`${words} words · clean ${cleanMs} ms · rewrite ${runMs} ms · ${status}`);
 console.log(errors.length ? `errors: ${errors.join('\n')}` : 'no page errors');

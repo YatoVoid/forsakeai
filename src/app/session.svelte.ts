@@ -3,7 +3,6 @@ import { isModelCached, loadLocalEngine, requestPersistence, type LoadProgress }
 import { LOCAL_MODELS, type LocalModel } from '../engines/local/models';
 import { probeDevice, type ProbeResult } from '../engines/local/probe';
 import { EngineError, type Engine } from '../engines/types';
-import { detectLang } from '../lib/lang';
 import type { Chunk } from '../pipeline/chunk';
 import { applyDialect, type Dialect } from '../pipeline/dialect';
 import { parse, proposedText, serialize } from '../pipeline/parse';
@@ -11,6 +10,7 @@ import type { PassMode, Register } from '../pipeline/prompt';
 import { rulePass, type RulePassSummary } from '../pipeline/rulepass';
 import { indexDoc, isChunkDone, rewriteDoc } from '../pipeline/run';
 import type { Doc, Sentence } from '../pipeline/types';
+import type { LangDetect } from '../pipeline/validate';
 import { buildVoiceProfile, type VoiceProfile } from '../pipeline/voice';
 import { formatDuration, Pace } from '../status/eta';
 import { isCheckerCached, loadChecker, pickDevice, runChecker, downloadMB } from '../detector/client';
@@ -82,6 +82,8 @@ export class Session {
   voice = $derived<VoiceProfile | null>(buildVoiceProfile(this.voiceSample, this.doc?.lang ?? 'eng'));
 
   private job: Job | null = null;
+  /** franc's trigram tables are large, so detection loads on first use. */
+  private detect: LangDetect | null = null;
   private controller: AbortController | null = null;
   private release: (() => void) | null = null;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -103,6 +105,15 @@ export class Session {
     return n;
   });
 
+  /** Words in the sentences still waiting for a rewrite, for time estimates. */
+  remainingWords = $derived.by(() => {
+    if (!this.doc) return 0;
+    let n = 0;
+    for (const b of this.doc.blocks)
+      for (const s of b.sentences) if (s.stiff && s.text && s.status !== 'rewritten' && s.status !== 'kept') n += s.text.split(/\s+/).length;
+    return n;
+  });
+
   paragraphsChanged = $derived.by(() => {
     if (!this.doc) return 0;
     return this.doc.blocks.filter((b) => b.sentences.some((s) => proposedText(s) !== s.source)).length;
@@ -121,7 +132,7 @@ export class Session {
       this.localModel = this.probe.recommended;
       this.localCached = await isModelCached(this.localModel, this.probe.f16);
     }
-    this.say(this.reviewLine(), null, 'quiet');
+    this.say('', null, 'quiet');
   }
 
   async chooseLocalModel(model: LocalModel): Promise<void> {
@@ -129,13 +140,18 @@ export class Session {
     if (this.probe?.ok) this.localCached = await isModelCached(model, this.probe.f16);
   }
 
-  clean(): void {
+  private async lang(): Promise<LangDetect> {
+    this.detect ??= (await import('../lib/lang')).detectLang;
+    return this.detect;
+  }
+
+  async clean(): Promise<void> {
     const text = this.input.trim() ? this.input : '';
     if (!text) {
       this.say('Nothing here yet. Paste something stiff.', null, 'quiet');
       return;
     }
-    const doc = parse(text, detectLang);
+    const doc = parse(text, await this.lang());
     const summary = rulePass(doc);
     applyDialect(doc, this.dialect);
     this.doc = doc;
@@ -153,17 +169,7 @@ export class Session {
       chunksDone: 0,
     };
     this.phase = 'review';
-    this.say(this.reviewLine(), null, 'quiet');
-  }
-
-  private reviewLine(): string {
-    const s = this.summary;
-    if (!s) return '';
-    const parts: string[] = [];
-    if (s.fixed) parts.push(`${s.fixed} ${s.fixed === 1 ? 'fix' : 'fixes'} made`);
-    if (s.stiffSentences) parts.push(`${s.stiffSentences} stiff ${s.stiffSentences === 1 ? 'sentence' : 'sentences'} left for a rewrite`);
-    if (!parts.length) return 'No stiff phrases found. It already reads like a person.';
-    return `${parts.join(', ')}.`;
+    this.say('', null, 'quiet');
   }
 
   editDraft(): void {
@@ -264,7 +270,7 @@ export class Session {
       await rewriteDoc(
         this.doc,
         engine,
-        { register: this.register, signal, detect: detectLang, voice: this.register === 'sample' ? this.voice : null },
+        { register: this.register, signal, detect: await this.lang(), voice: this.register === 'sample' ? this.voice : null },
         {
           onPass: (mode, chunks) => {
             pass = mode;
@@ -360,7 +366,7 @@ export class Session {
     this.phase = 'done';
     if (this.job) this.job.status = 'done';
     void this.persist();
-    this.say(this.doneLine(), 1, 'quiet');
+    this.say('', null, 'quiet');
     document.title = APP_TITLE;
     this.releaseLock();
     if (this.notifyWhenDone && document.hidden && 'Notification' in window && Notification.permission === 'granted') {
@@ -482,6 +488,26 @@ export class Session {
     this.selectedId = id;
     if (this.phase === 'done') this.phase = 'review';
     void this.persist();
+  }
+
+  async setNotify(on: boolean): Promise<void> {
+    if (on && 'Notification' in window && Notification.permission === 'default') {
+      this.notifyWhenDone = (await Notification.requestPermission()) === 'granted';
+    } else {
+      this.notifyWhenDone = on && 'Notification' in window && Notification.permission === 'granted';
+    }
+  }
+
+  startOver(): void {
+    if (this.phase === 'running') return;
+    this.input = '';
+    this.doc = null;
+    this.summary = null;
+    this.selectedId = null;
+    this.check = { kind: 'idle' };
+    this.phase = 'empty';
+    this.say('', null, 'quiet');
+    document.title = APP_TITLE;
   }
 
   setVoiceSample(text: string): void {

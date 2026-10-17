@@ -1,15 +1,17 @@
 <script lang="ts">
   import { wordDiff } from '../lib/diff';
-  import { proposedText } from '../pipeline/parse';
+  import { proposedText, sentenceText } from '../pipeline/parse';
   import type { Block, Doc, Sentence } from '../pipeline/types';
 
   let {
     doc,
+    view = 'changes',
     selectedId,
     activeIds = [],
     onSelect,
   }: {
     doc: Doc;
+    view?: 'changes' | 'clean';
     selectedId: string | null;
     activeIds?: string[];
     onSelect: (id: string | null) => void;
@@ -59,7 +61,7 @@
 {#snippet sentence(s: Sentence)}
   {@const proposed = proposedText(s)}
   {@const changed = proposed !== s.source}
-  {#if !interactive(s)}<span class="s">{s.source}</span>{s.trailing}{:else}<span
+  {#if view === 'clean'}{#if sentenceText(s)}<span class="s">{sentenceText(s)}</span>{s.trailing}{/if}{:else if !interactive(s)}<span class="s">{s.source}</span>{s.trailing}{:else}<span
       class="s mark"
       class:selected={selectedId === s.id}
       class:working={active.has(s.id)}
@@ -70,7 +72,7 @@
       aria-pressed={selectedId === s.id}
       onclick={() => onSelect(selectedId === s.id ? null : s.id)}
       onkeydown={(e) => onKey(e, s.id)}
-    >{#if changed && s.decision === 'rejected'}<span class="rejected">{s.source}</span>{:else if changed && s.decision === 'accepted'}{proposed}{:else if changed}{#each wordDiff(s.source, proposed) as part, i (i)}{#if part.op === 'delete'}<del>{part.text}</del>{:else if part.op === 'insert'}<ins>{part.text}</ins>{:else}{part.text}{/if}{/each}{#if !proposed}<span class="visually-hidden">(sentence removed)</span>{/if}{:else}{#each flagged(s) as seg, i (i)}{#if seg.flag}<span class="flag" title={seg.flag}>{seg.text}</span>{:else}{seg.text}{/if}{/each}{/if}</span>{s.trailing}{/if}
+    >{#if changed && s.decision === 'rejected'}<span class="undone">{s.source}</span>{:else if changed && s.decision === 'accepted'}{proposed}{:else if changed}{#each wordDiff(s.source, proposed) as part, i (i)}{#if part.op === 'delete'}<del class="removed">{part.text}</del>{:else if part.op === 'insert'}<ins class="added">{part.text}</ins>{:else}{part.text}{/if}{/each}{#if !proposed}<span class="visually-hidden">(sentence removed)</span>{/if}{:else}{#each flagged(s) as seg, i (i)}{#if seg.flag}<span class="stiff" title={seg.flag}>{seg.text}</span>{:else}{seg.text}{/if}{/each}{/if}</span>{s.trailing}{/if}
 {/snippet}
 
 {#snippet sentences(b: Block)}
@@ -85,7 +87,7 @@
       <p>{@render sentences(b)}</p>
     {:else if b.kind === 'list-item'}
       <p class="li" style:margin-inline-start="{indent(b) * 1.25}rem">
-        <span class="marker" aria-hidden="true">{marker(b)}</span>{@render sentences(b)}
+        <span class="marker" aria-hidden="true">{marker(b)}</span><span>{@render sentences(b)}</span>
       </p>
     {:else if b.kind === 'code' || b.kind === 'table'}
       <pre>{b.lead}</pre>
@@ -99,10 +101,8 @@
 
 <style>
   .manuscript {
-    font-family: var(--serif);
-    font-size: var(--step-0);
-    font-optical-sizing: auto;
-    line-height: 1.7;
+    font-size: var(--t-text);
+    line-height: 1.75;
     max-width: var(--measure);
     overflow-wrap: anywhere;
   }
@@ -113,45 +113,50 @@
   }
 
   p {
-    margin: 0 0 1em;
+    margin: 0 0 1.05em;
   }
 
   .h {
-    font-weight: 600;
-    line-height: 1.25;
-    margin: 1.4em 0 0.5em;
-    letter-spacing: -0.01em;
+    font-weight: 750;
+    line-height: 1.2;
+    letter-spacing: -0.015em;
+    margin: 1.6em 0 0.5em;
+  }
+
+  .h:first-child {
+    margin-top: 0;
   }
 
   :global(.manuscript h2) {
-    font-size: var(--step-3);
+    font-size: var(--t-xl);
   }
 
   :global(.manuscript h3) {
-    font-size: var(--step-2);
+    font-size: var(--t-lg);
   }
 
   :global(.manuscript h4) {
-    font-size: var(--step-1);
+    font-size: var(--t-text);
   }
 
   .li {
     display: flex;
-    gap: 0.6em;
-    margin-bottom: 0.35em;
+    gap: 0.65em;
+    margin-bottom: 0.4em;
   }
 
   .marker {
     flex: none;
     min-width: 1ch;
-    color: var(--ink-soft);
+    color: var(--ink-2);
   }
 
   pre {
     font-family: var(--mono);
-    font-size: 0.78rem;
+    font-size: 0.85rem;
     line-height: 1.55;
-    background: var(--paper-sunk);
+    background: var(--sheet);
+    border: 1px solid var(--rule);
     border-radius: var(--radius);
     padding: 0.8rem 1rem;
     overflow-x: auto;
@@ -161,9 +166,8 @@
   blockquote {
     margin: 0 0 1em;
     padding-left: 1rem;
-    border-left: 2px solid var(--rule);
-    color: var(--ink-soft);
-    font-style: italic;
+    border-left: 1px solid var(--rule-strong);
+    color: var(--ink-2);
   }
 
   hr {
@@ -175,65 +179,45 @@
   .mark {
     cursor: pointer;
     border-radius: 2px;
-    transition: background-color 150ms;
+    transition: background-color 120ms;
   }
 
   .mark:hover {
-    background: var(--paper-sunk);
+    background: var(--sheet);
   }
 
-  .selected {
-    background: var(--pencil-wash);
-    box-shadow: 0 0 0 2px var(--pencil-wash);
-  }
-
+  .selected,
   .selected:hover {
-    background: var(--pencil-wash);
+    background: var(--accent-wash);
+    box-shadow: 0 0 0 2px var(--accent-wash);
   }
 
   .working {
-    text-decoration: underline wavy var(--pencil);
-    text-decoration-thickness: 1px;
-    text-underline-offset: 0.3em;
-  }
-
-  .flag {
-    text-decoration: underline dotted var(--pencil);
-    text-decoration-thickness: 2px;
-    text-underline-offset: 0.25em;
+    animation: pulse 1.6s ease-in-out infinite;
   }
 
   .kept {
-    text-decoration: underline dotted var(--ink-soft);
+    text-decoration: underline dotted var(--ink-2);
     text-underline-offset: 0.25em;
   }
 
-  del {
-    color: var(--pencil);
-    text-decoration: line-through;
-    text-decoration-color: var(--pencil);
-    text-decoration-thickness: 1.5px;
+  :global(.manuscript del.removed + ins.added) {
+    margin-left: 0.25em;
   }
 
-  ins {
-    color: var(--insert);
-    text-decoration: none;
-    background: var(--insert-wash);
-    border-radius: 2px;
-    animation: ink 150ms ease-out;
+  :global(.manuscript ins.added) {
+    animation: settle 180ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  del + ins {
-    margin-left: 0.2em;
-  }
-
-  .rejected {
-    color: var(--ink-soft);
-  }
-
-  @keyframes ink {
+  @keyframes settle {
     from {
-      opacity: 0;
+      opacity: 0.2;
+    }
+  }
+
+  @keyframes pulse {
+    50% {
+      background: var(--accent-wash);
     }
   }
 </style>

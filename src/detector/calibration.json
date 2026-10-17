@@ -1,6 +1,6 @@
 {
   "created": "2026-10-17",
-  "noise": 0.687,
+  "noise": 0.692,
   "builds": {
     "wasm": {
       "arb": {
@@ -98,6 +98,32 @@
         "truePositiveRate": 0.625,
         "humanTexts": 27,
         "aiTexts": 30
+      }
+    },
+    "webgpu": {
+      "deu": {
+        "slope": 8.72,
+        "midpoint": 0.9369,
+        "auc": 0.594,
+        "aiBelow": 0.8926,
+        "humanAbove": 1.0064,
+        "humanCleared": 0,
+        "falsePositiveRate": 0.063,
+        "truePositiveRate": 0.375,
+        "humanTexts": 30,
+        "aiTexts": 30
+      },
+      "eng": {
+        "slope": 36.071,
+        "midpoint": 0.9434,
+        "auc": 0.813,
+        "aiBelow": 0.9115,
+        "humanAbove": 0.9745,
+        "humanCleared": 0.563,
+        "falsePositiveRate": 0.156,
+        "truePositiveRate": 0.676,
+        "humanTexts": 60,
+        "aiTexts": 60
       }
     }
   }

@@ -75,6 +75,7 @@ export async function loadLocalEngine(
     kind: 'local',
     label: model.label,
     concurrency: 1,
+    granularity: 'sentence',
     async complete(req) {
       if (req.signal.aborted) throw new EngineError('aborted', 'Stopped');
       const onAbort = () => active.interruptGenerate();

@@ -20,6 +20,10 @@ export interface Sentence {
   stiff: boolean;
   rewrite?: string;
   status: SentenceStatus;
+  /** Set once the audit pass has looked at this sentence's rewrite. */
+  audited?: boolean;
+  /** Stock phrasing the audit pass found in the rewrite. */
+  auditFlags?: RuleFlag[];
   /** The reader's call on a changed sentence. Unset means the change stands. */
   decision?: 'accepted' | 'rejected';
   note?: string;

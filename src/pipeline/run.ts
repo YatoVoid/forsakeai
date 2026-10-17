@@ -1,21 +1,27 @@
+import { runRules } from '../engines/rules/run';
 import { EngineError, type Engine } from '../engines/types';
-import type { Chunk } from './chunk';
-import { buildPrompt, parseResponse, type BuiltPrompt, type Register } from './prompt';
-import { unprotect } from './protect';
+import { chunkDoc, type Chunk } from './chunk';
+import { buildPrompt, parseResponse, type BuiltPrompt, type PassMode, type Register } from './prompt';
+import { protect, unprotect } from './protect';
 import type { Doc, Sentence } from './types';
 import { validateRewrite, type LangDetect } from './validate';
+import type { VoiceProfile } from './voice';
 
 export interface RunOptions {
   register: Register;
   signal: AbortSignal;
   detect: LangDetect;
+  voice?: VoiceProfile | null;
+  /** Re-check rewrites with the rule list and send leftovers back once. Default on. */
+  audit?: boolean;
   maxTransientRetries?: number;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
 export interface RunCallbacks {
-  onChunkStart?(chunk: Chunk): void;
-  onChunkDone?(chunk: Chunk, outcome: ChunkOutcome): void | Promise<void>;
+  onPass?(mode: PassMode, chunks: Chunk[]): void;
+  onChunkStart?(chunk: Chunk, mode: PassMode): void;
+  onChunkDone?(chunk: Chunk, outcome: ChunkOutcome, mode: PassMode): void | Promise<void>;
   onProgress?(chars: number): void;
   onWait?(ms: number, error: EngineError): void;
 }
@@ -30,16 +36,21 @@ interface TargetResult {
   reasons: string[];
 }
 
-export function indexDoc(doc: Doc): Map<string, { sentence: Sentence; lang: string }> {
-  const map = new Map<string, { sentence: Sentence; lang: string }>();
+type Index = Map<string, { sentence: Sentence; lang: string }>;
+
+export function indexDoc(doc: Doc): Index {
+  const map: Index = new Map();
   for (const b of doc.blocks) for (const s of b.sentences) map.set(s.id, { sentence: s, lang: b.lang });
   return map;
 }
 
-export function isChunkDone(chunk: Chunk, index: Map<string, { sentence: Sentence }>): boolean {
+const rewriteDone = (s: Sentence) => s.status === 'rewritten' || s.status === 'kept';
+
+export function isChunkDone(chunk: Chunk, index: Map<string, { sentence: Sentence }>, mode: PassMode = 'rewrite'): boolean {
   return chunk.targets.every((id) => {
-    const status = index.get(id)?.sentence.status;
-    return status === 'rewritten' || status === 'kept';
+    const s = index.get(id)?.sentence;
+    if (!s) return true;
+    return mode === 'audit' ? !!s.audited : rewriteDone(s);
   });
 }
 
@@ -57,22 +68,12 @@ export const defaultSleep = (ms: number, signal: AbortSignal) =>
     signal.addEventListener('abort', onAbort, { once: true });
   });
 
-async function completeWithRetry(
-  engine: Engine,
-  prompt: BuiltPrompt,
-  opts: RunOptions,
-  cb: RunCallbacks,
-): Promise<string> {
+async function completeWithRetry(engine: Engine, prompt: BuiltPrompt, opts: RunOptions, cb: RunCallbacks): Promise<string> {
   const max = opts.maxTransientRetries ?? 6;
   const sleep = opts.sleep ?? defaultSleep;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await engine.complete({
-        system: prompt.system,
-        user: prompt.user,
-        signal: opts.signal,
-        onProgress: cb.onProgress,
-      });
+      return await engine.complete({ system: prompt.system, user: prompt.user, signal: opts.signal, onProgress: cb.onProgress });
     } catch (err) {
       if (opts.signal.aborted) throw new EngineError('aborted', 'Stopped');
       if (!(err instanceof EngineError) || !err.retryable || attempt >= max) throw err;
@@ -84,12 +85,7 @@ async function completeWithRetry(
   }
 }
 
-function evaluate(
-  prompt: BuiltPrompt,
-  response: string,
-  index: Map<string, { sentence: Sentence; lang: string }>,
-  detect: LangDetect,
-): { results: Map<string, TargetResult>; chunkReasons: string[] } {
+function evaluate(prompt: BuiltPrompt, response: string, index: Index, detect: LangDetect) {
   const parsed = parseResponse(response);
   const chunkReasons: string[] = [];
   const results = new Map<string, TargetResult>();
@@ -115,15 +111,17 @@ function evaluate(
 
 export async function runChunk(
   chunk: Chunk,
-  index: Map<string, { sentence: Sentence; lang: string }>,
+  index: Index,
   engine: Engine,
   opts: RunOptions,
   cb: RunCallbacks,
+  mode: PassMode = 'rewrite',
 ): Promise<ChunkOutcome> {
   const lookup = (id: string) => index.get(id)?.sentence;
   const lang = index.get(chunk.targets[0]!)?.lang ?? 'eng';
+  const base = { register: opts.register, lang, voice: opts.voice, mode };
 
-  const first = buildPrompt(chunk, lookup, { register: opts.register, lang });
+  const first = buildPrompt(chunk, lookup, base);
   const attempt1 = evaluate(first, await completeWithRetry(engine, first, opts, cb), index, opts.detect);
 
   let final = attempt1.results;
@@ -135,7 +133,7 @@ export async function runChunk(
         .filter(([, r]) => !r.rewrite)
         .flatMap(([id, r]) => r.reasons.map((x) => `${first.targets.find((t) => t.sentenceId === id)!.key} ${x}`)),
     ];
-    const second = buildPrompt(chunk, lookup, { register: opts.register, lang, strictReasons: [...new Set(reasons)] });
+    const second = buildPrompt(chunk, lookup, { ...base, strictReasons: [...new Set(reasons)] });
     const attempt2 = evaluate(second, await completeWithRetry(engine, second, opts, cb), index, opts.detect);
     final = new Map();
     for (const id of chunk.targets) {
@@ -150,6 +148,16 @@ export async function runChunk(
     const s = lookup(id);
     const r = final.get(id);
     if (!s || !r) continue;
+    if (mode === 'audit') {
+      s.audited = true;
+      if (r.rewrite && r.rewrite !== s.rewrite) {
+        s.rewrite = r.rewrite;
+        outcome.rewritten++;
+      } else {
+        outcome.kept++;
+      }
+      continue;
+    }
     if (r.rewrite && r.rewrite !== s.text) {
       s.rewrite = r.rewrite;
       s.status = 'rewritten';
@@ -170,19 +178,39 @@ export function describeReasons(reasons: string[]): string {
 }
 
 /**
- * Runs every unfinished chunk. Local engines run one at a time; API engines
- * use a small pool. Throws on non-retryable engine errors so the caller can
- * pause the job and show the error; finished chunks are already applied.
+ * Runs the rule list over each rewrite. Deterministic fixes (em dashes and
+ * the like) are applied straight away; anything only the model can fix is
+ * recorded so the audit pass can send it back. Returns the IDs to audit.
  */
-export async function rewriteDoc(
-  doc: Doc,
+export function auditRewrites(doc: Doc): Set<string> {
+  const ids = new Set<string>();
+  for (const b of doc.blocks) {
+    for (const s of b.sentences) {
+      if (s.status !== 'rewritten' || s.rewrite === undefined || s.audited) continue;
+      const { masked, slots } = protect(s.rewrite);
+      const result = runRules(masked, b.lang);
+      if (!result.deleted) s.rewrite = unprotect(result.text, slots);
+      const open = result.flags.filter((f) => !f.fixed).map((f) => ({ ...f, match: unprotect(f.match, slots) }));
+      if (open.length) {
+        s.auditFlags = open;
+        ids.add(s.id);
+      } else {
+        s.audited = true;
+      }
+    }
+  }
+  return ids;
+}
+
+async function runQueue(
   chunks: Chunk[],
+  index: Index,
   engine: Engine,
   opts: RunOptions,
-  cb: RunCallbacks = {},
+  cb: RunCallbacks,
+  mode: PassMode,
 ): Promise<void> {
-  const index = indexDoc(doc);
-  const queue = chunks.filter((c) => !isChunkDone(c, index));
+  const queue = chunks.filter((c) => !isChunkDone(c, index, mode));
   let next = 0;
   let failure: unknown;
 
@@ -190,10 +218,10 @@ export async function rewriteDoc(
     while (!failure && next < queue.length) {
       if (opts.signal.aborted) return;
       const chunk = queue[next++]!;
-      cb.onChunkStart?.(chunk);
+      cb.onChunkStart?.(chunk, mode);
       try {
-        const outcome = await runChunk(chunk, index, engine, opts, cb);
-        await cb.onChunkDone?.(chunk, outcome);
+        const outcome = await runChunk(chunk, index, engine, opts, cb, mode);
+        await cb.onChunkDone?.(chunk, outcome, mode);
       } catch (err) {
         failure ??= err;
       }
@@ -204,3 +232,25 @@ export async function rewriteDoc(
   if (failure) throw failure;
   if (opts.signal.aborted) throw new EngineError('aborted', 'Stopped');
 }
+
+/**
+ * Rewrites every unfinished chunk, then audits the rewrites once. Local
+ * engines run one chunk at a time; API engines use a small pool. Throws on
+ * non-retryable engine errors so the caller can pause; finished chunks are
+ * already applied, and a rerun picks up where it stopped.
+ */
+export async function rewriteDoc(doc: Doc, engine: Engine, opts: RunOptions, cb: RunCallbacks = {}): Promise<void> {
+  const index = indexDoc(doc);
+  const main = chunkDoc(doc);
+  cb.onPass?.('rewrite', main);
+  await runQueue(main, index, engine, opts, cb, 'rewrite');
+
+  if (opts.audit === false) return;
+  const targets = auditRewrites(doc);
+  for (const s of index.values()) if (s.sentence.auditFlags?.length && !s.sentence.audited) targets.add(s.sentence.id);
+  if (!targets.size) return;
+  const audit = chunkDoc(doc, (s) => targets.has(s.id));
+  cb.onPass?.('audit', audit);
+  await runQueue(audit, index, engine, opts, cb, 'audit');
+}
+

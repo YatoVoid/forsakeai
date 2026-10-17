@@ -1,6 +1,10 @@
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import { fileURLToPath } from 'node:url';
+import { languagePages } from './scripts/pages-plugin';
+
+const SITE_URL = process.env.SITE_URL ?? 'https://yatovoid.github.io/plainhand';
 
 /**
  * GitHub Pages can't send response headers, so the policy ships as a meta tag.
@@ -45,9 +49,19 @@ function contentSecurityPolicy(): Plugin {
 
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
-  plugins: [svelte(), contentSecurityPolicy()],
+  plugins: [svelte(), contentSecurityPolicy(), languagePages(SITE_URL)],
   worker: { format: 'es' },
-  build: { target: 'es2023', sourcemap: true, assetsInlineLimit: 0 },
+  build: {
+    target: 'es2023',
+    sourcemap: true,
+    assetsInlineLimit: 0,
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        privacy: fileURLToPath(new URL('./privacy.html', import.meta.url)),
+      },
+    },
+  },
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',

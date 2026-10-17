@@ -4,12 +4,14 @@ import { LOCAL_MODELS, type LocalModel } from '../engines/local/models';
 import { probeDevice, type ProbeResult } from '../engines/local/probe';
 import { EngineError, type Engine } from '../engines/types';
 import { detectLang } from '../lib/lang';
-import { chunkDoc, type Chunk } from '../pipeline/chunk';
+import type { Chunk } from '../pipeline/chunk';
+import { applyDialect, type Dialect } from '../pipeline/dialect';
 import { parse, proposedText, serialize } from '../pipeline/parse';
-import type { Register } from '../pipeline/prompt';
+import type { PassMode, Register } from '../pipeline/prompt';
 import { rulePass, type RulePassSummary } from '../pipeline/rulepass';
 import { indexDoc, isChunkDone, rewriteDoc } from '../pipeline/run';
 import type { Doc, Sentence } from '../pipeline/types';
+import { buildVoiceProfile, type VoiceProfile } from '../pipeline/voice';
 import { formatDuration, Pace } from '../status/eta';
 import { claimJob, deleteJob, latestUnfinishedJob, newJobId, pruneJobs, saveJob, type EngineChoice, type Job } from '../store/jobs';
 
@@ -23,6 +25,25 @@ export interface Status {
 }
 
 const HEARTBEAT_MS = 10_000;
+const VOICE_KEY = 'plainhand.voice';
+const DIALECT_KEY = 'plainhand.dialect';
+
+function readStored(key: string): string {
+  try {
+    return localStorage.getItem(key) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function writeStored(key: string, value: string): void {
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch {
+    // Remembering settings is a convenience; private windows may block it.
+  }
+}
 const APP_TITLE = 'Plainhand';
 
 export class Session {
@@ -40,6 +61,10 @@ export class Session {
   notifyWhenDone = $state(false);
   chunksTotal = $state(0);
   chunksDone = $state(0);
+  voiceSample = $state(readStored(VOICE_KEY));
+  dialect = $state<Dialect>((readStored(DIALECT_KEY) as Dialect) || 'as-written');
+
+  voice = $derived<VoiceProfile | null>(buildVoiceProfile(this.voiceSample, this.doc?.lang ?? 'eng'));
 
   private job: Job | null = null;
   private controller: AbortController | null = null;
@@ -97,6 +122,7 @@ export class Session {
     }
     const doc = parse(text, detectLang);
     const summary = rulePass(doc);
+    applyDialect(doc, this.dialect);
     this.doc = doc;
     this.summary = summary;
     this.selectedId = null;
@@ -187,21 +213,13 @@ export class Session {
       return;
     }
 
-    const chunks = chunkDoc(this.doc);
     const index = indexDoc(this.doc);
-    this.chunksTotal = chunks.length;
-    this.chunksDone = chunks.filter((c) => isChunkDone(c, index)).length;
-    if (!chunks.length) {
-      this.finish();
-      return;
-    }
-
     const pace = new Pace();
-    const started = new Map<number, number>();
+    const started = new Map<string, number>();
     let current: Chunk | null = null;
+    let pass: PassMode = 'rewrite';
     let waitingUntil = 0;
     this.job.status = 'rewriting';
-    this.job.chunksTotal = this.chunksTotal;
     await this.persist();
 
     const render = () => {
@@ -217,7 +235,7 @@ export class Session {
         this.say(`Still working. Your GPU is busy on a long passage, nothing is stuck · ${secs} s`, this.fraction(), 'working');
         return;
       }
-      const parts = ['Rewriting', where];
+      const parts = [pass === 'audit' ? 'Checking the rewrites' : 'Rewriting', where];
       if (wps) parts.push(`${Math.round(wps)} words/sec`);
       if (eta) parts.push(`~${formatDuration(eta)} left`);
       this.say(parts.filter(Boolean).join(' · '), this.fraction(), 'working');
@@ -230,13 +248,24 @@ export class Session {
     try {
       await rewriteDoc(
         this.doc,
-        chunks,
         engine,
-        { register: this.register, signal, detect: detectLang },
+        { register: this.register, signal, detect: detectLang, voice: this.register === 'sample' ? this.voice : null },
         {
-          onChunkStart: (chunk) => {
+          onPass: (mode, chunks) => {
+            pass = mode;
+            const done = chunks.filter((c) => isChunkDone(c, index, mode)).length;
+            if (mode === 'rewrite') {
+              this.chunksTotal = chunks.length;
+              this.chunksDone = done;
+            } else {
+              this.chunksTotal += chunks.length;
+              this.chunksDone += done;
+            }
+            if (this.job) this.job.chunksTotal = this.chunksTotal;
+          },
+          onChunkStart: (chunk, mode) => {
             current = chunk;
-            started.set(chunk.index, performance.now());
+            started.set(mode + chunk.index, performance.now());
             pace.chunkStarted();
             this.selectedId = chunk.targets[0] ?? null;
           },
@@ -251,14 +280,15 @@ export class Session {
                 : `${err.message} Trying again in ${secs} s.`;
             this.say(text, this.fraction(), 'working');
           },
-          onChunkDone: async (chunk) => {
-            pace.chunkFinished(performance.now() - (started.get(chunk.index) ?? performance.now()));
+          onChunkDone: async (chunk, _outcome, mode) => {
+            pace.chunkFinished(performance.now() - (started.get(mode + chunk.index) ?? performance.now()));
             this.chunksDone++;
             await this.persist();
             render();
           },
         },
       );
+      applyDialect(this.doc, this.dialect);
       this.finish();
     } catch (err) {
       if (err instanceof EngineError && err.code === 'aborted') this.pauseState();
@@ -375,6 +405,21 @@ export class Session {
     if (!this.doc) return undefined;
     for (const b of this.doc.blocks) for (const s of b.sentences) if (s.stiff && s.status !== 'rewritten' && s.status !== 'kept') return s;
     return undefined;
+  }
+
+  setVoiceSample(text: string): void {
+    this.voiceSample = text;
+    writeStored(VOICE_KEY, text);
+  }
+
+  setDialect(d: Dialect): void {
+    this.dialect = d;
+    writeStored(DIALECT_KEY, d === 'as-written' ? '' : d);
+    if (this.doc && this.phase !== 'running' && d !== 'as-written') {
+      const n = applyDialect(this.doc, d);
+      void this.persist();
+      this.say(n ? `Spelling switched to ${d === 'us' ? 'US' : 'UK'} English in ${n} ${n === 1 ? 'sentence' : 'sentences'}.` : 'Spelling already matches.', null, 'quiet');
+    }
   }
 
   find(id: string): Sentence | undefined {

@@ -8,9 +8,13 @@
   import { languageName } from '../pipeline/prompt';
   import { proposedText } from '../pipeline/parse';
   import { SAMPLE } from './sample';
+  import { readPageConfig } from './pageConfig';
   import { Session } from './session.svelte';
+  import type { Dialect } from '../pipeline/dialect';
 
   const session = new Session();
+  const pageConfig = readPageConfig();
+  const home = import.meta.env.BASE_URL;
   let textarea = $state<HTMLTextAreaElement | null>(null);
   let page = $state<HTMLDivElement | null>(null);
   let noteTop = $state(0);
@@ -141,7 +145,7 @@
   }
 
   function trySample() {
-    session.input = SAMPLE;
+    session.input = pageConfig?.sample ?? SAMPLE;
     textarea?.focus();
   }
 </script>
@@ -150,7 +154,7 @@
 
 <div class="page" bind:this={page}>
   <header class="masthead">
-    <a class="wordmark" href="./" aria-label="Plainhand home">Plainhand</a>
+    <a class="wordmark" href={home} aria-label="Plainhand home">Plainhand</a>
     <div class="tools">
       {#if langLabel && showDoc}<span class="chip">{langLabel} · detected</span>{/if}
       <button class="btn btn-quiet" onclick={cycleTheme} aria-label="Theme: {theme}. Change theme">
@@ -174,13 +178,19 @@
       <StatusLine status={session.status} />
 
       {#if session.phase === 'empty'}
+        {#if pageConfig}
+          <div class="intro" lang={pageConfig.htmlLang}>
+            <h1>{pageConfig.heading}</h1>
+            <p>{pageConfig.intro}</p>
+          </div>
+        {/if}
         <label class="visually-hidden" for="draft">Your draft</label>
         <textarea
           id="draft"
           class="draft"
           bind:this={textarea}
           bind:value={session.input}
-          placeholder="Paste your draft."
+          placeholder={pageConfig?.placeholder ?? 'Paste your draft.'}
           spellcheck="true"
         ></textarea>
         <div class="actions">
@@ -220,6 +230,16 @@
           <button class="btn" onclick={() => exportAs('docx')}>Download .docx</button>
           <button class="btn" onclick={() => exportAs('md')}>.md</button>
           <button class="btn" onclick={() => exportAs('txt')}>.txt</button>
+          {#if session.doc.lang === 'eng'}
+            <label class="spelling">
+              <span>Spelling</span>
+              <select class="input" value={session.dialect} disabled={session.phase === 'running'} onchange={(e) => session.setDialect(e.currentTarget.value as Dialect)}>
+                <option value="as-written">As written</option>
+                <option value="us">US</option>
+                <option value="uk">UK</option>
+              </select>
+            </label>
+          {/if}
           <span class="spacer"></span>
           {#if session.changes && reviewable}
             <button class="btn btn-quiet" onclick={() => session.decideAll('accepted')}>Accept all</button>
@@ -251,6 +271,15 @@
     <p>
       Rule list adapted from Wikipedia's <a href="https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing" rel="noopener noreferrer" target="_blank">Signs of AI writing</a> (CC BY-SA 4.0).
       No tool can promise how a detector will score your text. Read it before you send it.
+    </p>
+    <p>
+      <a href="{home}privacy.html">Privacy</a> ·
+      <a href="https://github.com/YatoVoid/plainhand" rel="noopener noreferrer">Source code</a> ·
+      In other languages:
+      <a href="{home}de/" hreflang="de" lang="de">Deutsch</a>,
+      <a href="{home}es/" hreflang="es" lang="es">Español</a>,
+      <a href="{home}fr/" hreflang="fr" lang="fr">Français</a>,
+      <a href="{home}pt/" hreflang="pt" lang="pt">Português</a>
     </p>
   </footer>
 </div>
@@ -284,6 +313,20 @@
   }
 
   .chip {
+    color: var(--ink-soft);
+  }
+
+  .intro h1 {
+    font-family: var(--serif);
+    font-size: var(--step-2);
+    font-weight: 600;
+    line-height: 1.25;
+    margin: 0.75rem 0 0.35rem;
+  }
+
+  .intro p {
+    margin: 0 0 0.75rem;
+    max-width: 60ch;
     color: var(--ink-soft);
   }
 
@@ -372,6 +415,18 @@
 
   .spacer {
     flex: 1;
+  }
+
+  .spelling {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--ink-soft);
+  }
+
+  .spelling select {
+    width: auto;
+    padding-block: 0.35em;
   }
 
   .rail {

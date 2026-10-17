@@ -37,7 +37,7 @@ export async function probeDevice(): Promise<ProbeResult> {
     maxBufferMB,
     deviceMemoryGB,
     vendor: adapter.info?.vendor ?? '',
-    recommended: weak ? LOCAL_MODELS[1]! : LOCAL_MODELS[0]!,
+    recommended: weak ? LOCAL_MODELS.find((m) => m.base.startsWith('Qwen2.5-0.5B'))! : LOCAL_MODELS[0]!,
     weak,
   };
 }

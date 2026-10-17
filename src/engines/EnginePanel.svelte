@@ -2,7 +2,9 @@
   import type { Session } from '../app/session.svelte';
   import { DEFAULT_LOCAL_URL, isLoopbackUrl, listModels, PROVIDERS, providerInfo, type ProviderId } from './byok/providers';
   import { getKey, lockWithPassphrase, saveKey, unlock, vaultState, forgetAll, type VaultState } from './byok/vault';
-  import { LOCAL_MODELS } from './local/models';
+  import { LOCAL_MODELS, supportsLanguage } from './local/models';
+  import { VOICE_MIN_WORDS } from '../pipeline/voice';
+  import { languageName } from '../pipeline/prompt';
   import { formatDuration } from '../status/eta';
   import { REGISTERS, type Register } from '../pipeline/prompt';
   import { EngineError } from './types';
@@ -30,6 +32,17 @@
     session.doc?.blocks.flatMap((b) => b.sentences).filter((s) => s.stiff && s.status !== 'rewritten' && s.status !== 'kept').reduce((n, s) => n + s.text.split(/\s+/).length, 0) ?? 0,
   );
   const busy = $derived(session.phase === 'running');
+  const docLang = $derived(session.doc?.lang ?? 'eng');
+  const sampleWords = $derived(session.voiceSample.trim() ? session.voiceSample.trim().split(/\s+/).length : 0);
+  const voiceReady = $derived(session.register !== 'sample' || session.voice !== null);
+  const REGISTER_LABELS: Record<Register, string> = {
+    keep: 'Keep my tone',
+    plain: 'Plain',
+    casual: 'Casual',
+    academic: 'Academic',
+    business: 'Business',
+    sample: 'Like my writing sample',
+  };
 
   $effect(() => {
     if (mode === 'device') void session.probeDevice();
@@ -151,11 +164,34 @@
       <span>Voice</span>
       <select class="input" bind:value={session.register} disabled={busy}>
         {#each Object.keys(REGISTERS) as r (r)}
-          <option value={r}>{({ keep: 'Keep my tone', plain: 'Plain', casual: 'Casual', academic: 'Academic', business: 'Business' } as Record<Register, string>)[r as Register]}</option>
+          <option value={r}>{REGISTER_LABELS[r as Register]}</option>
         {/each}
       </select>
     </label>
   </div>
+
+  {#if session.register === 'sample'}
+    <div class="sample">
+      <label class="field">
+        <span>Paste 300 to 1,000 words you wrote yourself</span>
+        <textarea
+          class="input"
+          rows="5"
+          value={session.voiceSample}
+          oninput={(e) => session.setVoiceSample(e.currentTarget.value)}
+          disabled={busy}
+          spellcheck="false"
+        ></textarea>
+      </label>
+      <small class="muted">
+        {#if sampleWords < VOICE_MIN_WORDS}
+          {sampleWords} words. It needs at least {VOICE_MIN_WORDS} to read your style.
+        {:else if session.voice}
+          Reads as: {session.voice.brief}. Saved in this browser only.
+        {/if}
+      </small>
+    </div>
+  {/if}
 
   {#if mode === 'device'}
     <div class="body" role="tabpanel">
@@ -175,12 +211,20 @@
           <span>Model</span>
           <select class="input" value={session.localModel.base} disabled={busy} onchange={(e) => session.chooseLocalModel(LOCAL_MODELS.find((m) => m.base === e.currentTarget.value)!)}>
             {#each LOCAL_MODELS as m (m.base)}
-              <option value={m.base}>{m.label}</option>
+              <option value={m.base} disabled={!supportsLanguage(m, docLang)}>
+                {m.label}{supportsLanguage(m, docLang) ? '' : ` (no ${languageName(docLang)})`}
+              </option>
             {/each}
           </select>
         </label>
+        {#if session.localModel.attribution}
+          <p class="muted">
+            {session.localModel.attribution}. Use is subject to the
+            <a href={session.localModel.licenseUrl} target="_blank" rel="noopener noreferrer">{session.localModel.license}</a>.
+          </p>
+        {/if}
         <p class="muted">{estimate()}</p>
-        <button class="btn btn-primary" disabled={busy || !stiff} onclick={() => session.rewriteOnDevice()}>
+        <button class="btn btn-primary" disabled={busy || !stiff || !voiceReady || !supportsLanguage(session.localModel, docLang)} onclick={() => session.rewriteOnDevice()}>
           Rewrite {stiff} {stiff === 1 ? 'sentence' : 'sentences'} on this device
         </button>
       {/if}
@@ -257,7 +301,7 @@
       </details>
 
       <div>
-        <button class="btn btn-primary" disabled={!canRunKey || !stiff} onclick={runWithKey}>
+        <button class="btn btn-primary" disabled={!canRunKey || !stiff || !voiceReady} onclick={runWithKey}>
           Rewrite {stiff} {stiff === 1 ? 'sentence' : 'sentences'} with {info.label}
         </button>
       </div>
@@ -319,6 +363,20 @@
 
   .body {
     margin-top: 1rem;
+  }
+
+  .sample {
+    display: grid;
+    gap: 0.35rem;
+    margin-top: 1rem;
+    max-width: 40rem;
+  }
+
+  .sample textarea {
+    font-family: var(--serif);
+    font-size: 0.85rem;
+    line-height: 1.55;
+    resize: vertical;
   }
 
   .body p {

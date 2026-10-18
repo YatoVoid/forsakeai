@@ -111,16 +111,18 @@
 
         {#if phase === 'review' && session.allLeft > 0}
           <div class="scope" role="radiogroup" aria-label="What to rewrite">
-            <button role="radio" aria-checked={session.scope === 'stiff'} disabled={!session.stiffLeft} onclick={() => (session.scope = 'stiff')}>
-              Stiff sentences <span>{session.stiffLeft}</span>
-            </button>
             <button role="radio" aria-checked={session.scope === 'all'} onclick={() => (session.scope = 'all')}>
               Every sentence <span>{session.allLeft}</span>
             </button>
+            <button role="radio" aria-checked={session.scope === 'stiff'} disabled={!session.stiffLeft} onclick={() => (session.scope = 'stiff')}>
+              Stiff only <span>{session.stiffLeft}</span>
+            </button>
           </div>
-          {#if session.scope === 'all'}
-            <p class="scope-note">Stock phrases are only part of what makes text read as generated. This changes more of your wording and takes longer.</p>
-          {/if}
+          <p class="scope-note">
+            {session.scope === 'all'
+              ? 'Rewrites the whole text so it reads like a person wrote it. Takes longer.'
+              : 'Lighter: fixes only the flagged phrases and keeps the rest of your wording. AI detectors usually still flag the rest.'}
+          </p>
           <button class="btn btn-primary wide" onclick={onRewrite}>Rewrite {plural(left, 'sentence', 'sentences')} <ArrowRight class="icon" aria-hidden="true" /></button>
           <p class="engine">
             {#if prefs.mode === 'device'}<Laptop class="icon" aria-hidden="true" />{:else}<KeyRound class="icon" aria-hidden="true" />{/if}

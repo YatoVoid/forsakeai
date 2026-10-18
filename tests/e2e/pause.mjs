@@ -14,20 +14,18 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 const { check, failures } = checker();
 
+// Three paragraphs of two sentences: whole-text runs go a paragraph at a time.
 const plain = [
-  'The tank holds the point while the healers stay behind cover.',
-  'Our support player watches the flank and calls out divers early.',
-  'Damage heroes push the high ground once the shield goes down.',
-  'We rotate through the side door when the enemy sniper is looking away.',
-  'Ultimate charge matters more than kills in the last minute of a round.',
-  'After a lost fight the whole team regroups at the spawn before walking back.',
-].join(' ');
+  'The tank holds the point while the healers stay behind cover. Our support player watches the flank and calls out divers early.',
+  'Damage heroes push the high ground once the shield goes down. We rotate through the side door when the enemy sniper is looking away.',
+  'Ultimate charge matters more than kills in the last minute of a round. After a lost fight the whole team regroups at the spawn before walking back.',
+].join('\n\n');
 await page.goto(base);
 await cleanText(page, plain);
 
 const sheet = page.locator('.sheet');
 check((await sheet.getByRole('radio', { name: /Every sentence/ }).getAttribute('aria-checked')) === 'true', 'text with no stock phrases defaults to every sentence');
-check(await sheet.getByRole('radio', { name: /Stiff sentences/ }).isDisabled(), 'stiff-only option is off when nothing is stiff');
+check(await sheet.getByRole('radio', { name: /Stiff only/ }).isDisabled(), 'stiff-only option is off when nothing is stiff');
 
 const headline = () => sheet.locator('.headline').textContent();
 const pauseWithin = async (ms, label) => {
@@ -44,9 +42,9 @@ check((await sheet.locator('.progress.busy').count()) === 1, 'bar shows activity
 await pauseWithin(3000, 'pause works while loading');
 
 await sheet.getByRole('button', { name: /Resume|Try again/ }).click();
-await page.waitForFunction(() => /sentence [3-6] of 6/.test(document.querySelector('.sheet .status')?.textContent ?? ''), null, { timeout: 120000 });
+await page.waitForFunction(() => /sentence [3-5] of 6/.test(document.querySelector('.sheet .status')?.textContent ?? ''), null, { timeout: 120000 });
 const value = Number(await sheet.locator('.progress').getAttribute('aria-valuenow'));
-check(value >= 30 && value < 100, `bar fills sentence by sentence (${value}%)`);
+check(value >= 30 && value < 90, `bar fills sentence by sentence (${value}%)`);
 await page.screenshot({ path: `${shots}/pause-running.png` });
 await pauseWithin(4000, 'pause works mid-run');
 const status = await sheet.locator('.status').textContent();

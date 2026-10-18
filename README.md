@@ -9,11 +9,11 @@
 ## What it does
 
 - **Finds the tells.** Stock openers ("In today's fast-paced world"), filler ("It's important to note that"), hype words ("seamless", "transformative"), the "isn't just X, it's Y" construction, em dashes and chatbot sign-offs. Close to 80 English rules, with starter lists for German, Spanish, French and Portuguese.
-- **Fixes what it can on the spot**, then rewrites the rest with a language model: only the sentences that read stiff, or every sentence, paragraph by paragraph.
+- **Fixes what it can on the spot**, then rewrites the text with a language model, paragraph by paragraph. A lighter mode rewrites only the sentences that read stiff and keeps the rest of your wording.
 - **Shows every change.** Click any sentence to see why it changed, accept it, put your original back, or type your own version.
 - **Keeps your facts.** Numbers, names, links and quotes are locked before the model sees the text, and every rewrite is checked for meaning before it's used.
 
-![Pasting a draft, cleaning it up, checking a change, and rewriting the stiff sentences on the computer's own graphics card](.github/media/review.gif)
+![Trying the sample: clean-up, checking and restoring a change, then rewriting every sentence with Qwen3 4B on a laptop GPU](.github/media/review.gif)
 
 ## Where the rewrite runs
 
@@ -23,8 +23,6 @@
 | **Your own API key** | Straight from your browser to the provider | A key from Google Gemini (has a free tier), OpenAI, Anthropic, OpenRouter, Groq or Mistral, or a local Ollama / LM Studio server |
 
 There is no ForsakeAI server. Keys stay in your browser and can be encrypted with a passphrase.
-
-![Rewriting every sentence of an AI-written ad with Qwen3 4B running on a laptop GPU](.github/media/whole-text.gif)
 
 ## Does it work?
 
@@ -36,7 +34,12 @@ Tested with [desklib/ai-text-detector-v1.01](https://huggingface.co/desklib/ai-t
 | Rewritten on device, one sentence at a time | 7.5 |
 | Rewritten on device, whole paragraphs (what ships) | about 5.5 |
 
-On a 370-word AI-written text, a commercial detector went from 77.5% AI to 21% after rewriting the stiff sentences on device, and to 5.1% after rewriting every sentence.
+Measured with a commercial detector, rewriting on device:
+
+| Text | Before | Stiff only | Every sentence |
+| --- | --- | --- | --- |
+| 370-word article written by Gemini | 77.5% AI | 21% | 5.1% |
+| The sample ad in the app | 90% AI | 68% | 8% |
 
 What it doesn't do: a 4B model still drops a detail now and then, so read the result before you use it. Generic five-paragraph essays stay detectable even after a careful rewrite, because the structure gives them away. No tool can promise how a detector will score your text. Method and every run are in [docs/local-rewrite-eval.md](docs/local-rewrite-eval.md).
 

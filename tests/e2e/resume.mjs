@@ -16,6 +16,7 @@ const { check, failures } = checker();
 const paragraph = (i) => `Section ${i} plays a crucial role in the plan. ${'The team reviewed the numbers and agreed on next steps. '.repeat(22)}`;
 await page.goto(base);
 await cleanText(page, Array.from({ length: 8 }, (_, i) => paragraph(i + 1)).join('\n\n'));
+await page.locator('.sheet').getByRole('radio', { name: /Stiff only/ }).click();
 await rewriteWithLocalServer(page, 'http://127.0.0.1:8788/v1', 'mock-editor');
 
 await page.waitForFunction(() => /^\(([2-9])\/\d+\)/.test(document.title), null, { timeout: 30000 });

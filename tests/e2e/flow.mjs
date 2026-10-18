@@ -46,13 +46,19 @@ check(
   check((await page.locator('.manuscript del').count()) === 0, 'clean copy hides marks');
   await page.getByRole('radio', { name: 'Changes' }).click();
 
+  const sheet = page.locator('.sheet');
+  check((await sheet.getByRole('radio', { name: /Every sentence/ }).getAttribute('aria-checked')) === 'true', 'every sentence is the default');
+  await sheet.getByRole('radio', { name: /Stiff only/ }).click();
+  check(/^Rewrite 7 sentences/.test(await sheet.getByRole('button', { name: /^Rewrite \d+/ }).textContent()), 'stiff only offers just the flagged sentences');
+  await sheet.getByRole('radio', { name: /Every sentence/ }).click();
   await rewriteWithLocalServer(page, 'http://127.0.0.1:8787/v1', 'mock-editor');
   await waitDone(page);
   const headline = await page.locator('.sheet .headline').textContent();
   check(/\d+ sentences changed\. Read it through\./.test(headline), `done headline: ${headline}`);
 
   const output = await copyOutput(page);
-  for (const kept of ['14 days', '$4', '1926', 'https://quietcourier.com', '## ', '- Weather']) check(output.includes(kept), `output keeps "${kept}"`);
+  check((output.match(/^- /gm) ?? []).length === 3, 'list items kept');
+  for (const kept of ['14 days', '$4', '1926', 'https://quietcourier.com', '## ']) check(output.includes(kept), `output keeps "${kept}"`);
   check(!/In today's fast-paced/.test(output), 'stock opener rewritten');
   check(!output.includes('—'), 'no em dashes in output');
   await page.screenshot({ path: `${shots}/ph-done.png`, fullPage: true });

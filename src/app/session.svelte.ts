@@ -59,6 +59,7 @@ function writeStored(key: string, value: string): void {
   }
 }
 // Whatever the page shipped with, so language pages keep their own titles.
+const SAVE_INTERVAL_MS = 1000;
 const APP_TITLE = typeof document === 'undefined' ? 'ForsakeAI' : document.title;
 
 export class Session {
@@ -67,7 +68,7 @@ export class Session {
   doc = $state<Doc | null>(null);
   summary = $state<RulePassSummary | null>(null);
   register = $state<Register>('keep');
-  scope = $state<RewriteScope>('stiff');
+  scope = $state<RewriteScope>('all');
   /** Target sentences in the current run, for the progress bar. */
   sentencesTotal = $state(0);
   sentencesDone = $state(0);
@@ -182,8 +183,8 @@ export class Session {
       chunksTotal: 0,
       chunksDone: 0,
     };
-    // Text with no stock phrases can still read as generated; offer the whole text then.
-    this.scope = this.waiting('stiff').length ? 'stiff' : 'all';
+    // Rewriting everything is what moves AI detectors; fixing only flagged phrases is the lighter option.
+    this.scope = 'all';
     this.phase = 'review';
     this.say('', null, 'quiet');
   }
@@ -359,7 +360,7 @@ export class Session {
             this.workingIds = this.workingIds.filter((w) => w !== id);
             this.sentencesDone++;
             render();
-            await this.persist();
+            await this.persistSoon();
           },
           onWait: (ms, err) => {
             waitingUntil = Date.now() + ms;
@@ -468,6 +469,20 @@ export class Session {
     this.release = null;
   }
 
+  private lastSaved = 0;
+
+  /**
+   * Saving copies the whole document, so per-sentence progress on a long text
+   * saves at most about once a second. Passages, pauses and the end of a run
+   * still save straight away.
+   */
+  private async persistSoon(): Promise<void> {
+    const now = performance.now();
+    if (now - this.lastSaved < SAVE_INTERVAL_MS) return;
+    this.lastSaved = now;
+    await this.persist();
+  }
+
   private async persist(): Promise<void> {
     if (!this.job || !this.doc) return;
     this.job.doc = $state.snapshot(this.doc) as Doc;
@@ -481,7 +496,7 @@ export class Session {
     this.doc = job.doc;
     this.input = job.input;
     this.register = job.register;
-    this.scope = job.scope ?? 'stiff';
+    this.scope = job.scope ?? 'all';
     this.lastEngine = job.engine ?? null;
     this.chunksTotal = job.chunksTotal;
     this.chunksDone = job.chunksDone;

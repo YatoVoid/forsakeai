@@ -170,6 +170,7 @@ export function buildSentencePrompt(
     "- Everyday words and contractions (it's, don't, they're).",
     '- Uneven rhythm: some sentences short and blunt, some longer. Splitting a long sentence into two is fine.',
     "- Direct statements instead of clauses stacked with 'allowing', 'ensuring', 'making', 'which in turn'.",
+    "- Drop constructions like \"not just X, it's Y\" and \"whether you're X or Y\". Say the point directly.",
     '- No lists of three just for rhythm, no hype, no summing up.',
     '',
     'Rules:',

@@ -47,7 +47,8 @@ export function droppedNames(original: string, rewrite: string): string[] {
 
 function capitalizedNames(text: string): string[] {
   const names: string[] = [];
-  const re = /(^|[.!?:;]\s+|["“(]\s*)?(\p{Lu}[\p{Ll}\p{M}'’-]+)/gu;
+  // Must start a word: "reMarkable" is not a name "Markable".
+  const re = /(^|[.!?:;]\s+|["“(]\s*)?(?<![\p{L}\p{M}])(\p{Lu}[\p{Ll}\p{M}'’-]+)/gu;
   for (const m of stripTokens(text).matchAll(re)) {
     const atStart = m.index === 0 || m[1] !== undefined;
     if (atStart) continue;
@@ -113,6 +114,9 @@ export function validateRewrite(
     }
   }
 
+  // Small models given the previous sentence as context sometimes repeat it inside the rewrite.
+  if (neighbors.length && repeatsNeighbour(original, rewrite, neighbors)) reasons.push('repeated a neighbouring sentence');
+
   // A rewrite may not swap one stock phrase for another ("Moreover" → "Furthermore").
   const added = opts.softStock ? [] : stockDiff(original, rewrite, lang).added;
   if (added.length) reasons.push(`added stock phrasing ("${added[0]}")`);
@@ -141,4 +145,22 @@ export function stockDiff(original: string, rewrite: string, lang: string): { ad
     added: now.filter((f) => !had.has(f.ruleId)).map((f) => f.match.trim()),
     left: now.filter((f) => had.has(f.ruleId)).map((f) => f.match.trim()),
   };
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  let shared = 0;
+  for (const x of a) if (b.has(x)) shared++;
+  const union = a.size + b.size - shared;
+  return union ? shared / union : 0;
+}
+
+/** Whether one sentence of a multi-sentence rewrite is a copy of a neighbour rather than of the original. */
+function repeatsNeighbour(original: string, rewrite: string, neighbors: string[]): boolean {
+  const parts = stripTokens(rewrite).split(/(?<=[.!?])\s+/).filter((p) => contentStems(p).size >= 3);
+  if (parts.length < 2) return false;
+  const own = contentStems(original);
+  return parts.some((p) => {
+    const stems = contentStems(p);
+    return neighbors.some((n) => jaccard(stems, contentStems(n)) >= 0.5 && jaccard(stems, own) < 0.3);
+  });
 }

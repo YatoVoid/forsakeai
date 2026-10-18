@@ -169,3 +169,26 @@ describe('wordDiff on heavy rewrites', () => {
     expect(wordDiff('This is pivotal for the team.', 'This is big for the team.').some((p) => p.op === 'equal')).toBe(true);
   });
 });
+
+describe('token repair and camel-case brands', () => {
+  it('restores brackets a model dropped from locked tokens', async () => {
+    const { repairTokens } = await import('../src/pipeline/protect');
+    expect(repairTokens('The first [[1]] days are free, then [[2]] a month.', 'The first 1 days are free, then 2 a month.')).toBe('The first [[1]] days are free, then [[2]] a month.');
+    expect(repairTokens('Costs [[1]].', 'Costs [[1]].')).toBe('Costs [[1]].');
+  });
+
+  it('does not read "Markable" in "reMarkable" as a new name', () => {
+    const original = 'Your paper arrives by email for your Kindle, or as a download for Kobo and reMarkable.';
+    expect(validateRewrite(original, 'It comes by email for Kindle, or as a download for Kobo and reMarkable.', 'eng', () => 'eng')).toEqual([]);
+  });
+});
+
+describe('repeating a neighbour', () => {
+  it('rejects a rewrite that copies the previous sentence before its own', () => {
+    const previous = 'You simply read it to the last page, and then you are done.';
+    const original = 'This intentional design fosters a healthier relationship with the news.';
+    const rewrite = "You read it to the last page and then you're done. This design helps people live with the news.";
+    expect(validateRewrite(original, rewrite, 'eng', () => 'eng', [previous])).toContain('repeated a neighbouring sentence');
+    expect(validateRewrite(original, 'The design makes the news easier to live with. It stays calm.', 'eng', () => 'eng', [previous])).toEqual([]);
+  });
+});

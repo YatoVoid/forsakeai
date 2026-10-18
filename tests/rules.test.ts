@@ -90,3 +90,18 @@ describe('"isn\'t just" constructions', () => {
     }
   });
 });
+
+describe('marketing filler', () => {
+  it('flags stock ad copy', () => {
+    for (const t of [
+      'It offers a refreshing alternative that is designed to transform the way you start your day.',
+      'Each issue is beautifully crafted with timeless elegance.',
+      'Getting started is effortless.',
+      'It is the perfect way to embark on a calmer routine.',
+      "Whether you're a lifelong reader or simply looking to unplug, try it.",
+      'Staying informed has become an overwhelming experience.',
+    ]) {
+      expect(runRules(t, 'eng').flags.filter((f) => !f.fixed).length, t).toBeGreaterThan(0);
+    }
+  });
+});

@@ -12,7 +12,7 @@ import {
   type PassMode,
   type Register,
 } from './prompt';
-import { protect, unprotect } from './protect';
+import { protect, repairTokens, unprotect } from './protect';
 import { splitSentences } from './parse';
 import type { Block, Doc, Sentence } from './types';
 import { contentStems, droppedNames, stockDiff, validateRewrite, type LangDetect } from './validate';
@@ -25,6 +25,14 @@ export interface MeaningScorer {
 
 /** Below this embedding similarity to the original, a rewrite has probably changed the meaning. */
 export const MIN_SIMILARITY = 0.62;
+/**
+ * Short sentences share fewer words with any paraphrase, so good rewrites of
+ * one-liners score 0.5 to 0.6; rewrites that changed the subject scored 0.35 or less.
+ */
+export const MIN_SIMILARITY_SHORT = 0.45;
+const SHORT_SENTENCE_WORDS = 12;
+/** Rewrites of the wrong sentence beat their own by 0.28 or more in testing; close calls are topic overlap. */
+const NEIGHBOUR_MARGIN = 0.08;
 /** Sentence mode asks again while a rewrite fails validation or still carries a stock phrase. */
 const MAX_SENTENCE_ATTEMPTS = 3;
 /** Paragraph rewrites move more words around, so the bar is lower than for one sentence. */
@@ -152,6 +160,13 @@ function stockOf(s: Sentence, mode: PassMode): string[] {
   return flags.filter((f) => !f.fixed && f.match).map((f) => f.match);
 }
 
+/** The sentence with its flagged stock phrases cut out. */
+function withoutStock(text: string, stock: string[]): string {
+  let out = text;
+  for (const p of stock) out = out.split(p).join(' ');
+  return out.replace(/\s+/g, ' ').replace(/^[\s,;:]+/, '').trim() || text;
+}
+
 /** Room for a rewrite up to twice the original's length, so a rambling small model stops early. */
 const sentenceTokenCap = (masked: string) => Math.max(96, estimateTokens(masked) * 2 + 48);
 
@@ -202,7 +217,11 @@ export async function runChunk(
       if (!pending.length) continue;
       // A paragraph goes whole only when every sentence in it is still open;
       // otherwise the open ones go one at a time around the finished ones.
-      const whole = pending.length === ids.length && ids.length > 1 && (await rewriteParagraph(chunk, ids, index, engine, opts, cb, base));
+      // A paragraph that introduces a list ("...brings together:") has too little to say on its own;
+      // rewritten whole, small models fill it with invented detail.
+      const introducesList = /:\s*$/.test(lookup(ids.at(-1)!)?.text ?? '');
+      const whole =
+        pending.length === ids.length && ids.length > 1 && !introducesList && (await rewriteParagraph(chunk, ids, index, engine, opts, cb, base));
       if (whole) {
         total.rewritten += ids.length;
         continue;
@@ -294,14 +313,20 @@ async function rewriteSentence(
     if (opts.signal.aborted) throw new EngineError('aborted', 'Stopped');
     const prompt = buildSentencePrompt(chunk, id, lookup, { ...base, strictReasons });
     const target = prompt.targets[0]!;
-    const reply = parseSentenceResponse(await completeWithRetry(engine, prompt, opts, cb, sentenceTokenCap(target.masked))) ?? '';
+    const reply = repairTokens(target.masked, parseSentenceResponse(await completeWithRetry(engine, prompt, opts, cb, sentenceTokenCap(target.masked))) ?? '');
     reasons = validateRewrite(target.masked, reply, lang, opts.detect, near, { stock, lexicalMeaning: !opts.meaning });
     let similarity = 1;
     if (!reasons.length && opts.meaning) {
-      const [own = 0, ...others] = await opts.meaning.similarity(reply, [target.masked, ...near]);
+      // A sentence that is mostly stock phrase has little meaning left once the phrase goes,
+      // so the rewrite is also compared with what remains without it.
+      const core = withoutStock(target.masked, stock);
+      const [whole = 0, rest = 0, ...others] = await opts.meaning.similarity(reply, [target.masked, core, ...near]);
+      const own = Math.max(whole, rest);
       similarity = own;
-      if (own < MIN_SIMILARITY) reasons.push('changed the meaning');
-      else if (others.some((o) => o > own)) reasons.push('rewrote a neighbouring sentence');
+      const short = target.masked.split(/\s+/).length <= SHORT_SENTENCE_WORDS;
+      if (own < (short ? MIN_SIMILARITY_SHORT : MIN_SIMILARITY)) reasons.push('changed the meaning');
+      // Neighbours often share the topic; only a clear win means the model rewrote the wrong sentence.
+      else if (others.some((o) => o > own + NEIGHBOUR_MARGIN)) reasons.push('rewrote a neighbouring sentence');
     }
     if (reasons.length) {
       strictReasons = reasons;
@@ -348,8 +373,9 @@ async function rewriteParagraph(
   for (let attempt = 0; attempt < MAX_PARAGRAPH_ATTEMPTS; attempt++) {
     if (opts.signal.aborted) throw new EngineError('aborted', 'Stopped');
     const prompt = buildParagraphPrompt(masked, { ...base, strictReasons });
-    const reply = parseParagraphResponse(
-      await completeWithRetry(engine, { ...prompt, targets: [] }, opts, cb, paragraphTokenCap(masked)),
+    const reply = repairTokens(
+      masked,
+      parseParagraphResponse(await completeWithRetry(engine, { ...prompt, targets: [] }, opts, cb, paragraphTokenCap(masked))),
     );
     const reasons = validateRewrite(masked, reply, lang, opts.detect, [], { stock, lexicalMeaning: !opts.meaning, softStock: true });
     let similarity = 1;

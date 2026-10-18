@@ -53,7 +53,7 @@ export const en: Rule[] = [
   { id: 'en-dive', category: 'stock-word', pattern: '(?:deep dive|dive (?:deep|deeper|into))', note: 'Stock phrase' },
   { id: 'en-at-its-core', category: 'filler', pattern: 'at (?:its|their) core', note: 'Stock phrase' },
   { id: 'en-rest-assured', category: 'filler', pattern: 'rest assured|look no further', note: 'Sales filler' },
-  { id: 'en-whether-youre', category: 'filler', pattern: `whether you${APOS}re an? [^,.]{1,40} or an?`, note: 'Stock construction' },
+  { id: 'en-whether-youre', category: 'filler', pattern: `whether you${APOS}re (?:an? )?[^,.]{1,40} or`, note: 'Stock construction' },
   { id: 'en-not-only', category: 'filler', pattern: 'not only [^.;]{1,80} but also', note: '"Not only ... but also" construction' },
   { id: 'en-not-just', category: 'filler', pattern: `it${APOS}s not (?:just|only|merely) (?:about )?[^.;]{1,60}[,;] it${APOS}s`, note: '"Not just X, it\'s Y" construction' },
   {
@@ -77,5 +77,12 @@ export const en: Rule[] = [
   { id: 'en-new-era', category: 'filler', pattern: '(?:in )?(?:this|a) new era|best positioned to thrive|poised to thrive', note: 'Stock closer' },
   { id: 'en-thoughtfully', category: 'stock-word', pattern: 'thoughtfully|intentionally|holistic(?:ally)?', note: 'Stock word' },
   { id: 'en-remarkable', category: 'stock-word', pattern: '(?:remarkable|notable|significant) (?:opportunities|challenges|benefits)', note: 'Stock pairing' },
+  { id: 'en-transform-the-way', category: 'stock-word', pattern: '(?:designed|aims?|built|here|helps?) to (?:transform|revolutionize|redefine|reimagine)|(?:transform|revolutionize|redefine|reimagine)s? (?:the way|how) (?:you|we|people|teams)', note: 'Hype phrase' },
+  { id: 'en-refreshing', category: 'stock-word', pattern: 'refreshing (?:alternative|take|approach|change|twist)', note: 'Marketing phrase' },
+  { id: 'en-crafted', category: 'stock-word', pattern: '(?:beautifully|thoughtfully|carefully|expertly|lovingly) (?:crafted|designed|curated)', note: 'Marketing phrase' },
+  { id: 'en-timeless', category: 'stock-word', pattern: 'timeless (?:elegance|charm|appeal|beauty|classic)', note: 'Marketing phrase' },
+  { id: 'en-effortless', category: 'stock-word', pattern: 'effortless(?:ly)?', note: 'Marketing word' },
+  { id: 'en-perfect-way', category: 'stock-word', pattern: 'the (?:perfect|ideal|ultimate) (?:way|solution|choice|companion|tool) (?:to|for)', note: 'Marketing phrase' },
+  { id: 'en-overwhelming-experience', category: 'filler', pattern: 'an? (?:overwhelming|daunting|frustrating) (?:experience|task|endeavor)', note: 'Stock phrase' },
   { id: 'en-cohesive', category: 'stock-word', pattern: 'cohesive|synergy|synergies', note: 'Stock word' },
 ];

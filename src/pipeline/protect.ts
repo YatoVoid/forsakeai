@@ -63,3 +63,20 @@ export function placeholderCounts(text: string): Map<number, number> {
   }
   return counts;
 }
+
+/**
+ * Small models sometimes drop the brackets and write "[[2]]" as "2". A
+ * rewrite may not contain digits of its own, so a bare number equal to a
+ * missing token's id can only be that token.
+ */
+export function repairTokens(masked: string, rewrite: string): string {
+  const expected = placeholderCounts(masked);
+  const present = placeholderCounts(rewrite);
+  let out = rewrite;
+  for (const n of expected.keys()) {
+    if (present.has(n)) continue;
+    const bare = new RegExp(`(?<![\\d\\[])${n}(?![\\d\\]])`, 'g');
+    if ((out.match(bare) ?? []).length === 1) out = out.replace(bare, `[[${n}]]`);
+  }
+  return out;
+}

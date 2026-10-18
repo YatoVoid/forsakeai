@@ -81,7 +81,7 @@ node scripts/mock-llm.mjs 8788 700 &
 CHROMIUM_PATH=/path/to/chromium node tests/e2e/flow.mjs
 ```
 
-The other suites in `tests/e2e/` take the same arguments: `firstrun`, `pause`, `resume`, `long` and `phase2`. `tests/e2e/ondevice.mjs` runs the real on-device model and needs a full (headed) Chromium with WebGPU on a machine with a GPU.
+The other suites in `tests/e2e/` take the same arguments: `firstrun`, `pause`, `resume`, `long` and `phase2`. `tests/e2e/ondevice.mjs` and `tests/e2e/longpause.mjs` (pause, leave it idle, resume) run the real on-device model and need a full (headed) Chromium with WebGPU on a machine with a GPU.
 
 ## How it works
 

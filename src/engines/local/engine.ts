@@ -1,5 +1,5 @@
 import type { InitProgressReport, WebWorkerMLCEngine } from '@mlc-ai/web-llm';
-import { EngineError, type Engine } from '../types';
+import { EngineError, type CompletionRequest, type Engine } from '../types';
 import { modelId, type LocalModel } from './models';
 
 export interface LoadProgress {
@@ -21,6 +21,9 @@ export function parseProgress(report: InitProgressReport): LoadProgress {
 
 /** Errors WebGPU raises when buffers don't fit, at load or on the first generation. */
 const OUT_OF_MEMORY = /out of memory|mapAsync|allocat|device (was )?lost|createBuffer/i;
+
+/** The model is no longer on the GPU: WebLLM unloaded it after a device loss, or the device itself is gone. */
+const MODEL_GONE = /ModelNotLoaded|not loaded|device (was )?lost/i;
 
 /** Qwen3 thinks before answering unless told not to; a rewrite doesn't need it. */
 const thinkingOff = (model: LocalModel) => (model.base.startsWith('Qwen3') ? { extra_body: { enable_thinking: false } } : {});
@@ -89,6 +92,30 @@ export async function loadLocalEngine(
   }
 
   const active = engine!;
+  const generate = async (req: CompletionRequest): Promise<string> => {
+    await active.resetChat();
+    const stream = await active.chat.completions.create({
+      stream: true,
+      temperature: 0.6,
+      max_tokens: req.maxTokens ?? 1200,
+      ...thinkingOff(model),
+      messages: [
+        { role: 'system', content: req.system },
+        { role: 'user', content: req.user },
+      ],
+    });
+    let text = '';
+    // Read to the end even after a pause: WebLLM serves one request at a time and only
+    // frees itself when a stream finishes. interruptGenerate makes that end quickly;
+    // leaving the loop early would leave the next request waiting forever.
+    for await (const part of stream) {
+      if (req.signal.aborted) continue;
+      text += part.choices[0]?.delta?.content ?? '';
+      req.onProgress?.(text.length);
+    }
+    return text;
+  };
+
   return {
     kind: 'local',
     label: model.label,
@@ -99,33 +126,26 @@ export async function loadLocalEngine(
       const onAbort = () => active.interruptGenerate();
       req.signal.addEventListener('abort', onAbort, { once: true });
       try {
-        await active.resetChat();
-        const stream = await active.chat.completions.create({
-          stream: true,
-          temperature: 0.6,
-          max_tokens: req.maxTokens ?? 1200,
-          ...thinkingOff(model),
-          messages: [
-            { role: 'system', content: req.system },
-            { role: 'user', content: req.user },
-          ],
-        });
-        let text = '';
-        for await (const part of stream) {
-          if (req.signal.aborted) break;
-          text += part.choices[0]?.delta?.content ?? '';
-          req.onProgress?.(text.length);
+        let text: string;
+        try {
+          text = await generate(req);
+        } catch (err) {
+          if (req.signal.aborted || !MODEL_GONE.test(errorText(err))) throw err;
+          // The GPU dropped the weights (a device reset, often after sitting idle).
+          // They're still in the browser cache, so reload and try this request once more.
+          await active.reload(id);
+          text = await generate(req);
         }
         if (req.signal.aborted) throw new EngineError('aborted', 'Stopped');
         return text;
       } catch (err) {
         if (err instanceof EngineError) throw err;
         if (req.signal.aborted) throw new EngineError('aborted', 'Stopped');
-        const message = err instanceof Error ? err.message : String(err);
-        if (/device (was )?lost/i.test(message)) {
-          engine = null;
-          loadedId = null;
-          throw new EngineError('bad-request', 'The graphics card reset. Press Resume to reload the model.');
+        const message = errorText(err);
+        if (MODEL_GONE.test(message)) {
+          // Forget this engine so the next attempt loads the model from scratch.
+          if (engine === active) unloadLocalEngine();
+          throw new EngineError('bad-request', 'The graphics card dropped the model. Press Try again to reload it.');
         }
         throw new EngineError('bad-request', `The on-device model failed: ${message}`);
       } finally {
@@ -134,6 +154,8 @@ export async function loadLocalEngine(
     },
   };
 }
+
+const errorText = (err: unknown) => (err instanceof Error ? `${err.name}: ${err.message}` : String(err));
 
 export function unloadLocalEngine(): void {
   void engine?.unload();

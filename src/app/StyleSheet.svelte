@@ -28,6 +28,23 @@
     onJump: (id: string) => void;
   } = $props();
 
+  // Asked once per browser, after the first finished rewrite, and never again.
+  const ASKED_KEY = 'forsakeai.support-asked';
+  let askSupport = $state(false);
+  $effect(() => {
+    if (phase !== 'done') {
+      askSupport = false;
+      return;
+    }
+    try {
+      if (localStorage.getItem(ASKED_KEY)) return;
+      localStorage.setItem(ASKED_KEY, '1');
+      askSupport = true;
+    } catch {
+      // Without storage there's no way to ask only once, so don't ask.
+    }
+  });
+
   const strunk = `${import.meta.env.BASE_URL}media/strunk-1918-omit-needless-words.png`;
   let open = $state(false);
   let downloadMenu = $state<HTMLDetailsElement | null>(null);
@@ -140,6 +157,9 @@
           <p class="engine"><SlidersHorizontal class="icon" aria-hidden="true" /><span>{engineLabel}</span><button class="link" onclick={() => onSettings(false)}>Change</button></p>
         {:else}
           <button class="btn btn-primary wide" onclick={onCopy}><ClipboardCopy class="icon" aria-hidden="true" /> {copied ? 'Copied' : 'Copy the text'}</button>
+          {#if askSupport}
+            <p class="support">Saved you some time? <a href="https://buymeacoffee.com/walilambere" target="_blank" rel="noopener noreferrer">Buy me a coffee</a></p>
+          {/if}
           {#if phase === 'done' && session.allLeft > 0}
             <button
               class="btn wide"
@@ -298,6 +318,12 @@
     width: 100%;
     min-height: 3rem;
     font-size: var(--t-base);
+  }
+
+  .support {
+    margin: 0;
+    font-size: var(--t-sm);
+    color: var(--ink-2);
   }
 
   .engine {

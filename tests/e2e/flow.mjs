@@ -53,6 +53,7 @@ check(
   await sheet.getByRole('radio', { name: /Every sentence/ }).click();
   await rewriteWithLocalServer(page, 'http://127.0.0.1:8787/v1', 'mock-editor');
   await waitDone(page);
+  check(await page.locator('.sheet .support').isVisible(), 'asks for support after the first finished rewrite');
   const headline = await page.locator('.sheet .headline').textContent();
   check(/\d+ sentences changed\. Read it through\./.test(headline), `done headline: ${headline}`);
 
@@ -78,6 +79,11 @@ check(
 
   await page.locator('.sheet').getByRole('button', { name: 'Start over' }).click();
   check((await page.locator('#draft').count()) === 1, 'start over returns to an empty editor');
+  await cleanSample(page);
+  await page.locator('.sheet').getByRole('button', { name: /^Rewrite \d+/ }).click();
+  await waitDone(page);
+  check((await page.locator('.sheet .support').count()) === 0, 'never asks for support twice');
+  await page.locator('.sheet').getByRole('button', { name: 'Start over' }).click();
 
   check((await page.evaluate(() => window.__csp)).length === 0, `no CSP violations ${JSON.stringify(await page.evaluate(() => window.__csp))}`);
   check(errors.length === 0, `no console errors ${JSON.stringify(errors)}`);

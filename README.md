@@ -57,6 +57,10 @@ What it doesn't do: a 4B model still drops a detail now and then, so read the re
 
 Details on the [privacy page](https://yatovoid.github.io/forsakeai/privacy.html).
 
+## Support
+
+ForsakeAI is free and has no ads. If it saved you some time, you can [buy me a coffee](https://buymeacoffee.com/walilambere). It pays for hosting, test hardware and the time to keep it free.
+
 ## Run it yourself
 
 ```sh

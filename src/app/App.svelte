@@ -299,6 +299,7 @@
     <p>Stock-phrase list adapted from Wikipedia’s <a href="https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing" rel="noopener noreferrer" target="_blank">Signs of AI writing</a> (CC BY-SA 4.0). No tool can promise how a detector will score your text.</p>
     <p class="foot-links">
       <a href="https://github.com/YatoVoid/forsakeai" rel="noopener noreferrer">Source code</a>
+      <a href="https://buymeacoffee.com/walilambere" rel="noopener noreferrer">Support this project</a>
       <a href="{home}de/" hreflang="de" lang="de">Deutsch</a>
       <a href="{home}es/" hreflang="es" lang="es">Español</a>
       <a href="{home}fr/" hreflang="fr" lang="fr">Français</a>

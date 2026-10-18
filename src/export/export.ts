@@ -119,7 +119,7 @@ ${style('Code', 'Code', '<w:pPr><w:spacing w:after="0"/></w:pPr><w:rPr><w:rFonts
   });
 }
 
-export function download(doc: Doc, format: ExportFormat, name = 'plainhand'): void {
+export function download(doc: Doc, format: ExportFormat, name = 'forsakeai'): void {
   const blob =
     format === 'docx'
       ? new Blob([toDocx(doc) as Uint8Array<ArrayBuffer>], {

@@ -6,7 +6,7 @@ import type { ProviderId } from './providers';
  * the decrypted copy in memory for this tab only.
  */
 
-const STORAGE_KEY = 'plainhand.keys.v1';
+const STORAGE_KEY = 'forsakeai.keys.v1';
 const PBKDF2_ITERATIONS = 600_000;
 
 type Keys = Partial<Record<ProviderId, string>>;

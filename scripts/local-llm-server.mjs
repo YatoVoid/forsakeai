@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { AutoModelForCausalLM, AutoTokenizer, TextStreamer, env } from '@huggingface/transformers';
 
 const [port = '8790', modelId = 'onnx-community/Qwen2.5-1.5B-Instruct', dtype = 'int8'] = process.argv.slice(2);
-env.cacheDir = process.env.HF_CACHE ?? `${process.env.HOME}/.cache/plainhand-models`;
+env.cacheDir = process.env.HF_CACHE ?? `${process.env.HOME}/.cache/forsakeai-models`;
 
 const tokenizer = await AutoTokenizer.from_pretrained(modelId);
 const model = await AutoModelForCausalLM.from_pretrained(modelId, { dtype, device: 'cpu' });

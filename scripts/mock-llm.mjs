@@ -5,6 +5,14 @@ import { createServer } from 'node:http';
 const port = Number(process.argv[2] ?? 8787);
 const delay = Number(process.argv[3] ?? 0);
 const SWAPS = [
+  [/In today's fast-paced digital world, staying informed has become an overwhelming experience/g, 'Staying informed these days feels like too much'],
+  [/offers a refreshing alternative that is designed to transform the way you start your day/g, 'is a calmer way to start the day'],
+  [/a beautifully crafted daily newspaper/g, 'a daily newspaper'],
+  [/Inspired by the timeless elegance of /g, 'Laid out like '],
+  [/each edition seamlessly brings together a rich tapestry of reading/g, 'each edition has'],
+  [/this approach plays a pivotal role in fostering a healthier relationship with the news/g, 'that makes the news easier to live with'],
+  [/Getting started is effortless/g, 'Getting started is easy'],
+  [/For lifelong readers and anyone looking to unplug, The Quiet Courier is the perfect way to embark on a calmer morning routine/g, 'If you want a calmer morning, give The Quiet Courier a try'],
   [/plays a crucial role in/gi, 'matters for'],
   [/In today's fast-paced digital world, /g, 'These days, '],
   [/delve into the intricacies of/g, 'look closely at'],

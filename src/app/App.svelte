@@ -33,7 +33,7 @@
 
   onMount(() => {
     try {
-      const saved = localStorage.getItem('plainhand.theme');
+      const saved = localStorage.getItem('forsakeai.theme');
       if (saved === 'light' || saved === 'dark') applyTheme(saved);
       tipSeen = localStorage.getItem(TIP_KEY) === '1';
     } catch {
@@ -47,8 +47,8 @@
     if (t === 'system') delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = t;
     try {
-      if (t === 'system') localStorage.removeItem('plainhand.theme');
-      else localStorage.setItem('plainhand.theme', t);
+      if (t === 'system') localStorage.removeItem('forsakeai.theme');
+      else localStorage.setItem('forsakeai.theme', t);
     } catch {
       // Not persisted in private windows.
     }
@@ -163,7 +163,7 @@
     void tick().then(() => textarea?.focus());
   }
 
-  const TIP_KEY = 'plainhand.review-tip';
+  const TIP_KEY = 'forsakeai.review-tip';
 
   function dismissTip() {
     tipSeen = true;
@@ -195,7 +195,7 @@
 <div class="app" bind:this={page}>
   <div class="main">
     <header class="masthead">
-      <a class="wordmark" href={home} aria-label="Plainhand home">Plainhand</a>
+      <a class="wordmark" href={home} aria-label="ForsakeAI home">ForsakeAI</a>
       <nav class="tools" aria-label="Site">
         {#if langLabel && showDoc}<span class="lang">{langLabel}</span>{/if}
         <a href="{home}privacy.html">Privacy</a>
@@ -217,10 +217,10 @@
 
     {#if session.phase === 'empty'}
       <section class="intro" lang={pageConfig?.htmlLang}>
-        {#if pageConfig}<h1>{pageConfig.heading}</h1>{:else}<h1><span>Paste a draft.</span> <span>See every change.</span></h1>{/if}
+        {#if pageConfig}<h1>{pageConfig.heading}</h1>{:else}<h1><span>Make AI text</span> <span>sound human.</span></h1>{/if}
         <p>
           {pageConfig?.intro ??
-            'Plainhand fixes stock AI phrasing, rewrites what still reads stiff, and writes every decision on a style sheet you can check, keep or undo. Nothing leaves your browser unless you use your own API key.'}
+            'Paste AI-written text, see every phrase that gives it away, and rewrite it so it sounds like a person wrote it. Free, and nothing leaves your browser unless you use your own API key.'}
         </p>
       </section>
       <div class="draft-box">
@@ -298,7 +298,7 @@
   <footer class="foot">
     <p>Stock-phrase list adapted from Wikipedia’s <a href="https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing" rel="noopener noreferrer" target="_blank">Signs of AI writing</a> (CC BY-SA 4.0). No tool can promise how a detector will score your text.</p>
     <p class="foot-links">
-      <a href="https://github.com/YatoVoid/plainhand" rel="noopener noreferrer">Source code</a>
+      <a href="https://github.com/YatoVoid/forsakeai" rel="noopener noreferrer">Source code</a>
       <a href="{home}de/" hreflang="de" lang="de">Deutsch</a>
       <a href="{home}es/" hreflang="es" lang="es">Español</a>
       <a href="{home}fr/" hreflang="fr" lang="fr">Français</a>

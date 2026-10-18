@@ -4,7 +4,7 @@
 import { chromium } from 'playwright-core';
 import { checker, copyOutput } from './helpers.mjs';
 
-const base = process.argv[2] ?? 'http://localhost:4173/plainhand/';
+const base = process.argv[2] ?? 'http://localhost:4173/forsakeai/';
 const executablePath = process.argv[3] ?? process.env.CHROMIUM_PATH;
 const shots = process.env.SHOTS_DIR ?? '/tmp';
 const browser = await chromium.launch({ executablePath });

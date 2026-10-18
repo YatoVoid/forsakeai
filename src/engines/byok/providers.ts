@@ -79,7 +79,7 @@ function baseUrlFor(cfg: ByokConfig): string {
 function openAiHeaders(cfg: ByokConfig): HeadersInit {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (cfg.key) headers.authorization = `Bearer ${cfg.key}`;
-  if (cfg.provider === 'openrouter') headers['x-title'] = 'Plainhand';
+  if (cfg.provider === 'openrouter') headers['x-title'] = 'ForsakeAI';
   return headers;
 }
 

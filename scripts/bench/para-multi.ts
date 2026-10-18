@@ -14,7 +14,7 @@ const signal = new AbortController().signal;
 
 for (const c of configs) {
   for (let r = 0; r < (c.repeat ?? 1); r++) {
-    const dir = `${homedir()}/.cache/plainhand-eval/runs/${c.name}${c.repeat && c.repeat > 1 ? `-r${r}` : ''}`;
+    const dir = `${homedir()}/.cache/forsakeai-eval/runs/${c.name}${c.repeat && c.repeat > 1 ? `-r${r}` : ''}`;
     mkdirSync(dir, { recursive: true });
     const t = Date.now();
     for (const f of files) {

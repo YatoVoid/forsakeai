@@ -9,7 +9,7 @@ import { binocularsScore, concatTerms, rangeScore, tokenTerms } from '../src/det
 
 const [file, dtype = 'int8', maxTokensArg = '512'] = process.argv.slice(2);
 const maxTokens = Number(maxTokensArg);
-env.cacheDir = process.env.HF_CACHE ?? `${process.env.HOME}/.cache/plainhand-models`;
+env.cacheDir = process.env.HF_CACHE ?? `${process.env.HOME}/.cache/forsakeai-models`;
 
 const OBSERVER = process.env.DET_OBSERVER ?? 'onnx-community/Qwen2.5-0.5B';
 const PERFORMER = process.env.DET_PERFORMER ?? 'onnx-community/Qwen2.5-0.5B-Instruct';

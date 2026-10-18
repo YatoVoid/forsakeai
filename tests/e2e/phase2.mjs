@@ -4,7 +4,7 @@
 import { chromium } from 'playwright-core';
 import { checker, cleanSample, cleanText, copyOutput, waitDone } from './helpers.mjs';
 
-const base = process.argv[2] ?? 'http://localhost:4173/plainhand/';
+const base = process.argv[2] ?? 'http://localhost:4173/forsakeai/';
 const executablePath = process.argv[3] ?? process.env.CHROMIUM_PATH;
 const browser = await chromium.launch({ executablePath });
 const { check, failures } = checker();
@@ -25,7 +25,7 @@ async function open(path) {
   check((await page.locator('html').getAttribute('lang')) === 'de', 'German page sets html lang');
   check((await page.getByRole('heading', { level: 1 }).textContent()) === 'KI-Texte, die nach dir klingen', 'German intro heading');
   check((await page.locator('#draft').getAttribute('placeholder')) === 'Füge deinen Entwurf ein.', 'German placeholder');
-  check((await page.locator('link[rel="canonical"]').getAttribute('href')).endsWith('/plainhand/de/'), 'German canonical');
+  check((await page.locator('link[rel="canonical"]').getAttribute('href')).endsWith('/forsakeai/de/'), 'German canonical');
   await page.getByRole('button', { name: /try a sample/i }).click();
   check((await page.locator('#draft').inputValue()).includes('spielt ein gutes Onboarding'), 'German sample loads');
   await page.getByRole('button', { name: /Clean it up/ }).click();
@@ -75,7 +75,7 @@ async function open(path) {
 {
   const { page, errors, context } = await open('');
   await cleanSample(page);
-  await page.locator('.sheet').getByRole('button', { name: 'Rewrite 5 sentences' }).click();
+  await page.locator('.sheet').getByRole('button', { name: /^Rewrite \d+ sentences/ }).click();
   await page.waitForSelector('dialog[open]');
   check(await page.getByRole('button', { name: 'Save and rewrite' }).isVisible(), 'first rewrite asks where to run');
   await page.keyboard.press('Escape');

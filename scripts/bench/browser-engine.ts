@@ -21,7 +21,7 @@ const GPU_ARGS = ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPUServ
 
 export async function webllmEngine(modelId: string, opts: BenchOptions = {}, devUrl = 'http://localhost:5173/scripts/bench/webllm.html'): Promise<BrowserEngine> {
   // A persistent profile keeps downloaded weights between runs.
-  const context = await chromium.launchPersistentContext(`${homedir()}/.cache/plainhand-eval/chrome-profile`, {
+  const context = await chromium.launchPersistentContext(`${homedir()}/.cache/forsakeai-eval/chrome-profile`, {
     executablePath: process.env.CHROMIUM_GPU,
     headless: false,
     args: GPU_ARGS,

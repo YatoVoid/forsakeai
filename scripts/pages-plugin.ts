@@ -26,7 +26,7 @@ export function languagePages(siteUrl: string): Plugin {
     ].join('\n    ');
 
   return {
-    name: 'plainhand-language-pages',
+    name: 'forsakeai-language-pages',
     apply: 'build',
     configResolved(c) {
       config = c;
@@ -73,7 +73,7 @@ export function ortAssets(root: string): Plugin {
   const dist = join(root, 'node_modules/onnxruntime-web/dist');
   let config: ResolvedConfig;
   return {
-    name: 'plainhand-ort-assets',
+    name: 'forsakeai-ort-assets',
     configResolved(c) {
       config = c;
     },

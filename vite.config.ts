@@ -4,7 +4,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { fileURLToPath } from 'node:url';
 import { languagePages, ortAssets } from './scripts/pages-plugin.ts';
 
-const SITE_URL = process.env.SITE_URL ?? 'https://yatovoid.github.io/plainhand';
+const SITE_URL = process.env.SITE_URL ?? 'https://yatovoid.github.io/forsakeai';
 
 /**
  * GitHub Pages can't send response headers, so the policy ships as a meta tag.
@@ -39,7 +39,7 @@ const CSP = [
 
 function contentSecurityPolicy(): Plugin {
   return {
-    name: 'plainhand-csp',
+    name: 'forsakeai-csp',
     apply: 'build',
     transformIndexHtml: () => [
       { tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content: CSP }, injectTo: 'head-prepend' },

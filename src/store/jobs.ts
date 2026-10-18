@@ -30,7 +30,7 @@ interface Schema extends DBSchema {
 let dbPromise: Promise<IDBPDatabase<Schema>> | null = null;
 
 function db(): Promise<IDBPDatabase<Schema>> {
-  dbPromise ??= openDB<Schema>('plainhand', 1, {
+  dbPromise ??= openDB<Schema>('forsakeai', 1, {
     upgrade(d) {
       const store = d.createObjectStore('jobs', { keyPath: 'id' });
       store.createIndex('updatedAt', 'updatedAt');
@@ -92,7 +92,7 @@ export async function pruneJobs(): Promise<void> {
 export function claimJob(id: string): Promise<(() => void) | null> {
   if (!('locks' in navigator)) return Promise.resolve(() => {});
   return new Promise((resolve) => {
-    void navigator.locks.request(`plainhand-job-${id}`, { ifAvailable: true }, (lock) => {
+    void navigator.locks.request(`forsakeai-job-${id}`, { ifAvailable: true }, (lock) => {
       if (!lock) {
         resolve(null);
         return;

@@ -208,7 +208,7 @@
           {#if modelsError}<small class="warn">{modelsError}</small>{/if}
         </div>
         <label class="check"><input type="checkbox" bind:checked={prefs.remember} /> Remember this key in this browser</label>
-        <p class="muted">Your key and text go straight from this browser to {prefs.info.label}. Plainhand has no servers.</p>
+        <p class="muted">Your key and text go straight from this browser to {prefs.info.label}. ForsakeAI has no servers.</p>
         <details class="vault">
           <summary>Saved key settings</summary>
           {#if vault === 'plain' || vault === 'empty'}

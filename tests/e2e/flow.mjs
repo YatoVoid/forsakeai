@@ -3,7 +3,7 @@
 import { chromium } from 'playwright-core';
 import { checker, cleanSample, copyOutput, rewriteWithLocalServer, trackCsp, waitDone } from './helpers.mjs';
 
-const base = process.argv[2] ?? 'http://localhost:4173/plainhand/';
+const base = process.argv[2] ?? 'http://localhost:4173/forsakeai/';
 const executablePath = process.argv[3] ?? process.env.CHROMIUM_PATH;
 const shots = process.env.SHOTS_DIR ?? '/tmp';
 const browser = await chromium.launch({ executablePath });
@@ -23,7 +23,7 @@ async function run(viewport, scheme) {
 {
   const { context, page, errors } = await run({ width: 1280, height: 900 }, 'light');
   await page.goto(base);
-  check((await page.title()) === 'Plainhand', 'title');
+  check((await page.title()) === 'ForsakeAI: Free Local AI Humanizer', 'title');
   check((await page.locator('meta[http-equiv="Content-Security-Policy"]').count()) === 1, 'CSP meta present');
   await page.locator('.strunk img').scrollIntoViewIfNeeded();
 check(
@@ -52,7 +52,7 @@ check(
   check(/\d+ sentences changed\. Read it through\./.test(headline), `done headline: ${headline}`);
 
   const output = await copyOutput(page);
-  for (const kept of ['64%', '1,200', '2025', '3 steps instead of 7', '## ']) check(output.includes(kept), `output keeps "${kept}"`);
+  for (const kept of ['14 days', '$4', '1926', 'https://quietcourier.com', '## ', '- Weather']) check(output.includes(kept), `output keeps "${kept}"`);
   check(!/In today's fast-paced/.test(output), 'stock opener rewritten');
   check(!output.includes('—'), 'no em dashes in output');
   await page.screenshot({ path: `${shots}/ph-done.png`, fullPage: true });
@@ -68,7 +68,7 @@ check(
   await page.locator('.sheet summary', { hasText: 'Download' }).click();
   const download = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: /Word document/ }).click();
-  check((await download).suggestedFilename() === 'plainhand.docx', 'docx download');
+  check((await download).suggestedFilename() === 'forsakeai.docx', 'docx download');
 
   await page.locator('.sheet').getByRole('button', { name: 'Start over' }).click();
   check((await page.locator('#draft').count()) === 1, 'start over returns to an empty editor');

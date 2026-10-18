@@ -39,8 +39,8 @@ export interface Status {
 }
 
 const HEARTBEAT_MS = 10_000;
-const VOICE_KEY = 'plainhand.voice';
-const DIALECT_KEY = 'plainhand.dialect';
+const VOICE_KEY = 'forsakeai.voice';
+const DIALECT_KEY = 'forsakeai.dialect';
 
 function readStored(key: string): string {
   try {
@@ -58,7 +58,8 @@ function writeStored(key: string, value: string): void {
     // Remembering settings is a convenience; private windows may block it.
   }
 }
-const APP_TITLE = 'Plainhand';
+// Whatever the page shipped with, so language pages keep their own titles.
+const APP_TITLE = typeof document === 'undefined' ? 'ForsakeAI' : document.title;
 
 export class Session {
   phase = $state<Phase>('empty');
@@ -447,7 +448,7 @@ export class Session {
     document.title = APP_TITLE;
     this.releaseLock();
     if (this.notifyWhenDone && document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-      new Notification('Plainhand', { body: this.doneLine() });
+      new Notification('ForsakeAI', { body: this.doneLine() });
     }
   }
 
@@ -471,7 +472,7 @@ export class Session {
     if (!this.job || !this.doc) return;
     this.job.doc = $state.snapshot(this.doc) as Doc;
     this.job.chunksDone = this.chunksDone;
-    if (!(await saveJob(this.job))) console.warn('Plainhand: could not save progress; resume after reload will not work.');
+    if (!(await saveJob(this.job))) console.warn('ForsakeAI: could not save progress; resume after reload will not work.');
   }
 
   async restore(saved: Job): Promise<void> {

@@ -7,10 +7,10 @@ import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { checker, cleanText, copyOutput, waitDone } from './helpers.mjs';
 
-const [draftPath, outDir, base = 'http://localhost:4173/plainhand/'] = process.argv.slice(2);
+const [draftPath, outDir, base = 'http://localhost:4173/forsakeai/'] = process.argv.slice(2);
 mkdirSync(outDir, { recursive: true });
 const { check, failures } = checker();
-const context = await chromium.launchPersistentContext(`${homedir()}/.cache/plainhand-eval/chrome-app-profile`, {
+const context = await chromium.launchPersistentContext(`${homedir()}/.cache/forsakeai-eval/chrome-app-profile`, {
   executablePath: process.env.CHROMIUM_GPU,
   headless: false,
   args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPUService', '--ignore-gpu-blocklist', '--ozone-platform=x11'],
@@ -22,7 +22,7 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 await page.goto(base);
 // The profile persists for the model cache; start each run from first-visit settings.
-await page.evaluate(() => localStorage.removeItem('plainhand.prefs'));
+await page.evaluate(() => localStorage.removeItem('forsakeai.prefs'));
 await page.reload();
 await cleanText(page, readFileSync(draftPath, 'utf8'));
 

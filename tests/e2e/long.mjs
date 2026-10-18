@@ -3,7 +3,7 @@
 import { chromium } from 'playwright-core';
 import { cleanText, rewriteWithLocalServer, waitDone } from './helpers.mjs';
 
-const base = process.argv[2] ?? 'http://localhost:4173/plainhand/';
+const base = process.argv[2] ?? 'http://localhost:4173/forsakeai/';
 const executablePath = process.argv[3] ?? process.env.CHROMIUM_PATH;
 const browser = await chromium.launch({ executablePath });
 const page = await browser.newPage();

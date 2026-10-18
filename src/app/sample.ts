@@ -1,10 +1,15 @@
-export const SAMPLE = `## Why our onboarding matters
+export const SAMPLE = `## The Quiet Courier: Reclaim Your Mornings
 
-In today's fast-paced digital world, onboarding plays a crucial role in keeping new customers. It's worth noting that 64% of users who leave in the first week never come back. Our new flow aims to delve into the intricacies of that first week and foster a seamless experience.
+In today's fast-paced digital world, staying informed has become an overwhelming experience. Endless feeds, constant notifications and algorithm-driven headlines leave readers feeling drained rather than enlightened. The Quiet Courier offers a refreshing alternative that is designed to transform the way you start your day.
 
-Moreover, the redesign leverages what we learned from 1,200 support tickets in 2025. It's not just about fewer clicks, it's about building trust from day one.
+Every morning, The Quiet Courier delivers a beautifully crafted daily newspaper straight to your e-ink reader. Laid out with the timeless elegance of an early 1900s broadsheet, each edition seamlessly brings together a rich tapestry of reading:
 
-- Shorter signup, now 3 steps instead of 7.
-- A welcome email that serves as a reminder of what to do next.
+- World news and science from licensed sources, with none of it written by AI.
+- Weather for your own city, poems and puzzles.
+- Pages from the Library of Congress archives of 1926.
 
-In conclusion, this pivotal update will unlock the full potential of our product. I hope this helps!`;
+It's important to note that The Quiet Courier was designed as a daily ritual rather than an app. There are no ads, no notifications and no infinite scroll. You simply read it to the last page, and then you are done. Moreover, this approach plays a pivotal role in fostering a healthier relationship with the news.
+
+Getting started is effortless. Sign up at https://quietcourier.com, choose your city, and your first paper arrives by email for your Kindle, or as a download for Kobo and reMarkable. The first 14 days are free with no card required, and after that it costs $4 a month. When the trial ends, the paper simply stops unless you choose to subscribe.
+
+For lifelong readers and anyone looking to unplug, The Quiet Courier is the perfect way to embark on a calmer morning routine. I hope this helps!`;

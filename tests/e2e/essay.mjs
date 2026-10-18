@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { cleanText, copyOutput, rewriteWithLocalServer, trackCsp, waitDone } from './helpers.mjs';
 
-const [essayPath, outDir, server = 'http://127.0.0.1:8790/v1', model = 'Qwen2.5-1.5B-Instruct', base = 'http://localhost:4173/plainhand/', executablePath = process.env.CHROMIUM_PATH] =
+const [essayPath, outDir, server = 'http://127.0.0.1:8790/v1', model = 'Qwen2.5-1.5B-Instruct', base = 'http://localhost:4173/forsakeai/', executablePath = process.env.CHROMIUM_PATH] =
   process.argv.slice(2);
 mkdirSync(outDir, { recursive: true });
 const essay = readFileSync(essayPath, 'utf8');

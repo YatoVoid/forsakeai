@@ -11,7 +11,7 @@ interface Stored {
   remember?: boolean;
 }
 
-const KEY = 'plainhand.prefs';
+const KEY = 'forsakeai.prefs';
 
 function read(): Stored {
   try {

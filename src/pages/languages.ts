@@ -18,12 +18,12 @@ export const LANGUAGE_PAGES: LanguagePage[] = [
     slug: 'de',
     lang: 'deu',
     htmlLang: 'de',
-    title: 'KI-Texte natürlicher klingen lassen · Plainhand',
+    title: 'KI-Texte natürlicher klingen lassen · ForsakeAI',
     description:
-      'Plainhand markiert typische KI-Floskeln in deutschen Texten und schreibt steife Sätze um. Kostenlos, im Browser, ohne Upload.',
+      'ForsakeAI markiert typische KI-Floskeln in deutschen Texten und schreibt steife Sätze um. Kostenlos, im Browser, ohne Upload.',
     heading: 'KI-Texte, die nach dir klingen',
     intro:
-      'Füge einen Entwurf ein. Plainhand markiert Floskeln wie „spielt eine entscheidende Rolle“ und schreibt steife Sätze um, auf deinem Gerät oder mit deinem eigenen API-Schlüssel.',
+      'Füge einen Entwurf ein. ForsakeAI markiert Floskeln wie „spielt eine entscheidende Rolle“ und schreibt steife Sätze um, auf deinem Gerät oder mit deinem eigenen API-Schlüssel.',
     placeholder: 'Füge deinen Entwurf ein.',
     sample: `## Unser neues Onboarding
 
@@ -35,12 +35,12 @@ Ich hoffe, das hilft!`,
     slug: 'es',
     lang: 'spa',
     htmlLang: 'es',
-    title: 'Haz que un texto de IA suene natural · Plainhand',
+    title: 'Haz que un texto de IA suene natural · ForsakeAI',
     description:
-      'Plainhand marca las muletillas típicas de la IA en textos en español y reescribe las frases rígidas. Gratis, en tu navegador, sin subir nada.',
+      'ForsakeAI marca las muletillas típicas de la IA en textos en español y reescribe las frases rígidas. Gratis, en tu navegador, sin subir nada.',
     heading: 'Textos de IA que suenan a ti',
     intro:
-      'Pega un borrador. Plainhand marca frases hechas como «juega un papel crucial» y reescribe las frases rígidas, en tu dispositivo o con tu propia clave de API.',
+      'Pega un borrador. ForsakeAI marca frases hechas como «juega un papel crucial» y reescribe las frases rígidas, en tu dispositivo o con tu propia clave de API.',
     placeholder: 'Pega tu borrador.',
     sample: `## Nuestro nuevo proceso de bienvenida
 
@@ -52,12 +52,12 @@ En el mundo actual, la bienvenida a nuevos clientes juega un papel crucial. Cabe
     slug: 'fr',
     lang: 'fra',
     htmlLang: 'fr',
-    title: 'Rendre un texte d’IA plus naturel · Plainhand',
+    title: 'Rendre un texte d’IA plus naturel · ForsakeAI',
     description:
-      'Plainhand repère les tics d’écriture de l’IA dans vos textes en français et réécrit les phrases figées. Gratuit, dans votre navigateur, sans envoi.',
+      'ForsakeAI repère les tics d’écriture de l’IA dans vos textes en français et réécrit les phrases figées. Gratuit, dans votre navigateur, sans envoi.',
     heading: 'Des textes d’IA qui sonnent comme vous',
     intro:
-      'Collez un brouillon. Plainhand repère les formules toutes faites comme « joue un rôle crucial » et réécrit les phrases figées, sur votre appareil ou avec votre propre clé d’API.',
+      'Collez un brouillon. ForsakeAI repère les formules toutes faites comme « joue un rôle crucial » et réécrit les phrases figées, sur votre appareil ou avec votre propre clé d’API.',
     placeholder: 'Collez votre brouillon.',
     sample: `## Notre nouvel accueil
 
@@ -69,12 +69,12 @@ J'espère que cela vous aide !`,
     slug: 'pt',
     lang: 'por',
     htmlLang: 'pt',
-    title: 'Deixe um texto de IA mais natural · Plainhand',
+    title: 'Deixe um texto de IA mais natural · ForsakeAI',
     description:
-      'O Plainhand marca os vícios de escrita da IA em textos em português e reescreve as frases rígidas. Grátis, no navegador, sem envio.',
+      'O ForsakeAI marca os vícios de escrita da IA em textos em português e reescreve as frases rígidas. Grátis, no navegador, sem envio.',
     heading: 'Textos de IA com a sua voz',
     intro:
-      'Cole um rascunho. O Plainhand marca frases feitas como “desempenha um papel crucial” e reescreve as frases rígidas, no seu dispositivo ou com a sua própria chave de API.',
+      'Cole um rascunho. O ForsakeAI marca frases feitas como “desempenha um papel crucial” e reescreve as frases rígidas, no seu dispositivo ou com a sua própria chave de API.',
     placeholder: 'Cole o seu rascunho.',
     sample: `## Nosso novo onboarding
 

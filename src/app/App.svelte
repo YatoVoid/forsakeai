@@ -195,7 +195,15 @@
 <div class="app" bind:this={page}>
   <div class="main">
     <header class="masthead">
-      <a class="wordmark" href={home} aria-label="ForsakeAI home">ForsakeAI</a>
+      <a class="wordmark" href={home} aria-label="ForsakeAI home"
+        ><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"
+          ><rect width="32" height="32" rx="7" /><path d="M10 26V6h12.5" stroke-width="4" stroke-linecap="square" /><path
+            d="M10 16.5c2.4-3.6 4.5-3.6 6.7 0s4.3 3.6 6.8 0"
+            stroke-width="3.6"
+            stroke-linecap="round"
+          /></svg
+        >ForsakeAI</a
+      >
       <nav class="tools" aria-label="Site">
         {#if langLabel && showDoc}<span class="lang">{langLabel}</span>{/if}
         <a href="{home}privacy.html">Privacy</a>
@@ -351,10 +359,28 @@
   }
 
   .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
     font-size: var(--t-lg);
     font-weight: 850;
     letter-spacing: -0.03em;
     text-decoration: none;
+  }
+
+  .mark {
+    width: 1.5rem;
+    height: 1.5rem;
+    flex: none;
+  }
+
+  .mark rect {
+    fill: var(--accent);
+  }
+
+  .mark path {
+    fill: none;
+    stroke: var(--accent-ink);
   }
 
   .tools {

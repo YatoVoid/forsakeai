@@ -588,8 +588,10 @@ export class Session {
 
   private async loadCheck(device: DetectorDevice): Promise<void> {
     this.say('Loading the AI check…', null, 'working');
+    // Transformers.js reports progress for cached files too; only a real download gets the download line.
+    const cached = await isCheckerCached();
     await loadChecker(device, (p: CheckerLoad) => {
-      if (p.totalMB > 0) {
+      if (!cached && p.totalMB > 0) {
         this.say(
           `Downloading the AI check · ${Math.round(p.loadedMB).toLocaleString()} / ${Math.round(p.totalMB).toLocaleString()} MB · only once`,
           p.loadedMB / p.totalMB,

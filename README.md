@@ -14,7 +14,7 @@
 - **Checks for AI.** After a rewrite, an open AI detector runs in your browser and gives the text a score, marks each part green, yellow or red, and highlights the sentences that push the score up the most. One click rewrites just those.
 - **Keeps your facts.** Numbers, names, links and quotes are locked before the model sees the text, and every rewrite is checked for meaning before it's used.
 
-![Trying the sample: clean-up, checking and restoring a change, then rewriting every sentence with Qwen3 4B on a laptop GPU](.github/media/review.gif)
+![Trying the sample: clean-up, checking and restoring a change, then rewriting every sentence with Qwen3 4B on a laptop GPU (sped up)](.github/media/review.gif)
 
 ## Where the rewrite runs
 
@@ -97,6 +97,8 @@ Built with Svelte 5, Vite, [WebLLM](https://github.com/mlc-ai/web-llm) and [Tran
 
 ## The AI check
 
+![The AI check on the sample before rewriting: 100% reads AI, red bars in the margin, and four highlighted sentences listed with a button to rewrite them](.github/media/check.png)
+
 The check runs [desklib/ai-text-detector-v1.01](https://huggingface.co/desklib/ai-text-detector-v1.01) (MIT) in the browser on WebGPU. It ships as [YatoVoid/forsakeai-detector](https://huggingface.co/YatoVoid/forsakeai-detector), a 438 MB copy with int8 weights and fp32 math. Its scores match the full 1.7 GB model to within 0.13 logits (`scripts/detector-quantize.py` builds it).
 
 1. Prose is packed into windows of up to 360 words, about what the detector reads in one pass, and each window gets a score.
@@ -105,7 +107,7 @@ The check runs [desklib/ai-text-detector-v1.01](https://huggingface.co/desklib/a
 
 The check and the rewrite model take turns on the graphics card, since both together don't fit on a 6 GB card. On an RTX 3050 laptop GPU, a 500-word text checks in about 10 seconds, including loading the model.
 
-The score comes from one open detector. GPTZero, Turnitin and the rest will give other numbers. A stock five-paragraph essay still reads 99% AI after two rounds of rewriting the flagged sentences, because the structure gives it away.
+The score comes from one open detector, and detectors disagree. GPTZero, Turnitin and the rest will give other numbers. On marketing copy the gap is widest: desklib still rates the sample ad 100% AI after every sentence is rewritten, while a commercial detector rated the same rewrite 8%. On a stock five-paragraph essay, two rounds of rewriting the flagged sentences took desklib's score from 99% to 55%.
 
 ## License
 

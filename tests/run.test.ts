@@ -361,6 +361,15 @@ describe('isProse', () => {
     const { doc } = setup('The Universal Contender: D.Va\n\nShe works on every map. Her kit is flexible.\n\nOne line that ends with a period.');
     expect(doc.blocks.filter((b) => b.kind !== 'blank').map(isProse)).toEqual([false, true, true]);
   });
+
+  it('skips numbered questions that an answer responds to', async () => {
+    const { isProse } = await import('../src/pipeline/run');
+    const { doc } = setup(
+      '4. What method does Socrates use to find information about the concept?\n\nSocrates uses questions. He never just tells him.\n\n' +
+        '5. The dialogue concludes without any definition, then what was its purpose? What was your takeaway?',
+    );
+    expect(doc.blocks.filter((b) => b.kind !== 'blank').map(isProse)).toEqual([false, true, false]);
+  });
 });
 
 describe('thinking blocks', () => {

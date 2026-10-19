@@ -18,6 +18,29 @@ describe('runRules', () => {
     expect(r.text).toBe('');
   });
 
+  it('deletes chatbot preambles and offers', () => {
+    for (const line of [
+      'Here it is in simpler words, closer to how you write:',
+      "Sure, here's a more natural version:",
+      'Here is the rewrite in your voice:',
+      'Want me to make it shorter?',
+      'If you like, I can also adjust the tone.',
+    ]) expect(runRules(line, 'eng').deleted, line).toBe(true);
+  });
+
+  it('flags the "X, not just Y" contrast', () => {
+    const r = runRules('You should be able to explain why it is right, not just feel that it is right.', 'eng');
+    expect(r.flags.map((f) => f.ruleId)).toContain('en-comma-not-just');
+  });
+
+  it('keeps ordinary lines that introduce a list', () => {
+    for (const line of [
+      'Here is the schedule for next week:',
+      'Here are the words we banned:',
+      'Would you like me to pick you up?',
+    ]) expect(runRules(line, 'eng').deleted, line).toBe(false);
+  });
+
   it('flags stock words without changing them', () => {
     const r = runRules('This pivotal update will delve into the details.', 'eng');
     expect(r.text).toBe('This pivotal update will delve into the details.');

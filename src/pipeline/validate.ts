@@ -123,6 +123,8 @@ export function validateRewrite(
 
   const plainOriginal = stripTokens(original).trim();
   const plainRewrite = stripTokens(rewrite).trim();
+  if (/\?["”’')\]]*$/.test(plainOriginal) && !/\?["”’')\]]*$/.test(plainRewrite)) reasons.push('turned a question into a statement');
+  if (plainRewrite.split(/(?<=[.!?…])\s+/).some((part) => drifted(part, lang))) reasons.push('switched language');
   const scriptBefore = dominantScript(plainOriginal);
   const scriptAfter = dominantScript(plainRewrite);
   if (scriptBefore && scriptAfter && scriptBefore !== scriptAfter) {
@@ -134,6 +136,30 @@ export function validateRewrite(
     if (source === lang && target !== 'und' && target !== source) reasons.push('switched language');
   }
   return reasons;
+}
+
+/**
+ * Function words that mark a language. franc can't judge one short sentence, but a model
+ * that slips into French mid-paragraph writes "il", "si", "ce", "qu'il" and almost no English ones.
+ */
+const FUNCTION_WORDS: Record<string, Set<string>> = {
+  eng: new Set('the and is are was were of to that it he she they what his her not with for this be if does did would should there their'.split(' ')),
+  fra: new Set('le la les des du est et il elle ils elles si ce qu que sait pas une un dans pour avec vraiment sur au aux cette sont mais nous vous je ne'.split(' ')),
+  spa: new Set('el los las es y que una del por para con pero como está muy también lo su sus ella ellos'.split(' ')),
+  deu: new Set('der das und ist nicht ein eine mit auch sich auf für dass wenn er sie es ich wir sind'.split(' ')),
+  por: new Set('os um uma não que com para mais como mas ele ela isso muito são está'.split(' ')),
+};
+
+export function drifted(sentence: string, lang: string): boolean {
+  const own = FUNCTION_WORDS[lang];
+  if (!own) return false;
+  const tokens = sentence.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
+  const mine = tokens.filter((t) => own.has(t)).length;
+  return Object.entries(FUNCTION_WORDS).some(([code, set]) => {
+    if (code === lang) return false;
+    const theirs = tokens.filter((t) => set.has(t)).length;
+    return theirs >= 3 && theirs > mine * 2;
+  });
 }
 
 /** Stock phrases the rewrite added, and ones from the original it still uses. */

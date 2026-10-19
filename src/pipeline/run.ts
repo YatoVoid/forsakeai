@@ -92,6 +92,8 @@ export function indexDoc(doc: Doc): Index {
  */
 export function isProse(b: Block): boolean {
   if (b.kind !== 'paragraph' && b.kind !== 'list-item') return false;
+  // A block of only questions is usually a prompt being answered, like a numbered exam question.
+  if (b.sentences.every((s) => /\?["”’')\]]*$/.test(s.text.trim()))) return false;
   if (b.sentences.length !== 1) return true;
   const text = b.sentences[0]!.text.trim();
   return /[.!?…]["”’')\]]*$/.test(text) || text.split(/\s+/).length > 12;

@@ -17,6 +17,20 @@ export const en: Rule[] = [
   { id: 'en-opener-great-question', category: 'opener', pattern: '^great question[!.]?\\s*', replace: '', note: 'Chatbot opener' },
   { id: 'en-closer-hope-helps', category: 'closer', pattern: '^i hope (?:this|that) helps[!.]?$', replace: DELETE_SENTENCE, note: 'Chatbot closer' },
   { id: 'en-opener-heres', category: 'opener', pattern: `^here${APOS}s (?:a|an|the) (?:revised|rewritten|polished|improved|refined) (?:version|draft)[^.:]*[:.]\\s*`, replace: '', note: 'Chatbot preamble' },
+  {
+    id: 'en-preamble',
+    category: 'opener',
+    pattern: `^(?:(?:sure|okay|ok|alright|absolutely|certainly|of course)[,!.]?\\s+)?(?:here(?:${APOS}s| is| it is| are| you go)|below is)\\b[^.!?:]*?(?:version|rewrite|draft|(?:simpler|plainer|plain|simple|everyday|easier|other|different|your own) (?:words|wording|language|english|terms)|how you (?:write|talk|speak|sound)|your (?:style|voice|tone)|more (?:natural|human|casual|formal|conversational))[^.!?:]*:$`,
+    replace: DELETE_SENTENCE,
+    note: 'Chatbot preamble',
+  },
+  {
+    id: 'en-offer',
+    category: 'closer',
+    pattern: `^(?:let me know if you(?:${APOS}d| would)? (?:like|want) me to|(?:do you )?want me to|would you like me to|if you(?:${APOS}d| would)? like,? i can(?: also)?) (?:make|rewrite|adjust|shorten|expand|tweak|change|simplify|polish|revise|turn|tailor|add)\\b[^.!?]*[.?!]?$`,
+    replace: DELETE_SENTENCE,
+    note: 'Chatbot offer',
+  },
 
   // Flags for the model
   { id: 'en-as-an-ai', category: 'opener', pattern: 'as an ai(?: language model)?', note: 'Model disclaimer' },
@@ -62,6 +76,7 @@ export const en: Rule[] = [
     pattern: `(?:isn${APOS}t|aren${APOS}t|wasn${APOS}t|is not|are not|${APOS}s not|${APOS}re not) (?:just|only|merely|simply) [^.;]{1,70}[,;] (?:it|this|that|they|we|you|he|she|its|their)(?![\\p{L}])`,
     note: '"Isn\'t just X, it\'s Y" construction',
   },
+  { id: 'en-comma-not-just', category: 'filler', pattern: '(?<=, )not (?:just|only|merely|simply) [^.;,]{1,60}', note: '"X, not just Y" construction' },
   { id: 'en-transition-cut', category: 'transition', pattern: '^(?:moreover|furthermore|additionally),\\s*', replace: '', note: 'Stock transition' },
   { id: 'en-transition', category: 'transition', pattern: '^(?:overall|ultimately|importantly|notably|looking ahead|looking forward),', note: 'Stock transition' },
   { id: 'en-that-being-said', category: 'transition', pattern: 'that being said|with that in mind|in essence', note: 'Stock transition' },

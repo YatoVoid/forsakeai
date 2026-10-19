@@ -37,3 +37,10 @@ describe('protect', () => {
     expect(slots).toEqual(['[site](https://a.com)', 'https://b.com']);
   });
 });
+
+describe('unprotect', () => {
+  it('drops a full stop the model added after a quote that already ends the sentence', () => {
+    const { masked, slots } = protect('Good would just mean “whatever God wants.”');
+    expect(unprotect(masked.replace(/\[\[1\]\]$/, '[[1]].'), slots)).toBe('Good would just mean “whatever God wants.”');
+  });
+});

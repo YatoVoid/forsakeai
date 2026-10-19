@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateRewrite } from '../src/pipeline/validate';
+import { drifted, validateRewrite } from '../src/pipeline/validate';
 
 const same = (lang: string) => () => lang;
 
@@ -190,5 +190,24 @@ describe('repeating a neighbour', () => {
     const rewrite = "You read it to the last page and then you're done. This design helps people live with the news.";
     expect(validateRewrite(original, rewrite, 'eng', () => 'eng', [previous])).toContain('repeated a neighbouring sentence');
     expect(validateRewrite(original, 'The design makes the news easier to live with. It stays calm.', 'eng', () => 'eng', [previous])).toEqual([]);
+  });
+});
+
+describe('language drift', () => {
+  it('catches one short French sentence inside an English paragraph', () => {
+    const original = 'But I think Socrates is kind of being ironic here. He is really testing if Euthyphro actually knows what he thinks he knows.';
+    const rewrite = "But I think Socrates is being ironic here. Il teste si Euthyphro vraiment sait ce qu'il croit savoir.";
+    expect(validateRewrite(original, rewrite, 'eng', same('eng'))).toContain('switched language');
+  });
+
+  it('leaves English with a borrowed French phrase alone', () => {
+    expect(drifted('He shrugged and said c’est la vie before he left.', 'eng')).toBe(false);
+    expect(drifted('Socrates says no, because that is just one example.', 'eng')).toBe(false);
+  });
+
+  it('rejects a question turned into a statement', () => {
+    expect(validateRewrite('What method does Socrates use?', 'Socrates asks what method he uses.', 'eng', same('eng'))).toContain(
+      'turned a question into a statement',
+    );
   });
 });

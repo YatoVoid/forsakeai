@@ -52,7 +52,10 @@ export function protect(text: string, offset = 0): Masked {
 }
 
 export function unprotect(masked: string, slots: string[], offset = 0): string {
-  return masked.replace(PLACEHOLDER, (whole, n: string) => slots[Number(n) - 1 - offset] ?? whole);
+  return masked
+    .replace(PLACEHOLDER, (whole, n: string) => slots[Number(n) - 1 - offset] ?? whole)
+    // A locked quote that ends a sentence brings its own full stop; models add another after it.
+    .replace(/([.!?…]["”’'»)\]]+)\./g, '$1');
 }
 
 export function placeholderCounts(text: string): Map<number, number> {

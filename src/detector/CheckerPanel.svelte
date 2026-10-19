@@ -1,17 +1,21 @@
 <script lang="ts">
   import type { Session } from '../app/session.svelte';
-  import { CAVEAT, VERDICT_LABEL } from './present';
+  import { sentenceText } from '../pipeline/parse';
 
-  let { session }: { session: Session } = $props();
+  let { session, onRewrite }: { session: Session; onRewrite: () => void } = $props();
 
-  const CONFIDENCE = { high: 'High confidence', medium: 'Medium confidence', low: 'Low confidence' } as const;
+  const LABEL = { human: 'Reads human', mixed: 'Mixed', ai: 'Reads AI' } as const;
+
+  function rewriteFlagged() {
+    if (session.markFlagged()) onRewrite();
+  }
 </script>
 
 {#if session.check.kind === 'confirm'}
-  <section class="checker" aria-label="AI-likelihood check">
+  <section class="checker" aria-label="AI check">
     <p>
-      The checker uses its own pair of models. About {session.check.mb.toLocaleString()} MB, downloaded once and kept in this
-      browser. {session.check.device === 'wasm' ? 'Without WebGPU it runs on the processor, so a long text can take a minute.' : ''}
+      The AI check runs an open AI-text detector in this browser. It downloads about {session.check.mb.toLocaleString()} MB once and
+      keeps it. Your text stays on this device.
     </p>
     <div class="row">
       <button class="btn btn-primary" onclick={() => session.check.kind === 'confirm' && session.runCheck(session.check.device)}>Download and check</button>
@@ -20,29 +24,36 @@
   </section>
 {:else if session.check.kind === 'done'}
   {@const r = session.check.result}
-  <section class="checker" aria-label="AI-likelihood check">
-    <p class="verdict">
-      <strong>{VERDICT_LABEL[r.verdict]}</strong>
-      <span>{r.low}–{r.high}% AI-likelihood</span>
-      <span>{CONFIDENCE[r.confidence]} ({session.check.langName})</span>
+  <section class="checker" aria-label="AI check result">
+    <p class="score band-{r.band}">
+      <strong>{Math.round(r.ai * 100)}%</strong>
+      <span>{LABEL[r.band]}</span>
     </p>
-    {#each r.caveats as c (c)}<p class="muted">{c}</p>{/each}
-    {#if session.check.quotes.length && r.verdict !== 'likely-human'}
-      <p class="muted">The sentences that read most machine-like:</p>
+    <p class="muted">
+      How likely an open detector (desklib) thinks this text is AI-written. It reads a few paragraphs at a time, like a page, and the
+      margin shows each part: <span class="key human">human</span>, <span class="key mixed">mixed</span>, <span class="key ai">AI</span>.
+    </p>
+    {#if r.flagged.length}
+      <p>
+        {r.flagged.length === 1 ? 'One sentence pushes' : `${r.flagged.length} sentences push`} the score up the most. They’re highlighted in the text.
+      </p>
       <ol>
-        {#each session.check.quotes as q (q.id)}
-          <li>
-            <button class="quote" onclick={() => (session.selectedId = q.id)}>{q.text}</button>
-            <button class="btn btn-quiet" onclick={() => session.markForRewrite(q.id)}>Rewrite this one</button>
-          </li>
+        {#each r.flagged as f (f.id)}
+          {@const s = session.find(f.id)}
+          {#if s}
+            <li><button class="quote" onclick={() => (session.selectedId = f.id)}>{sentenceText(s)}</button></li>
+          {/if}
         {/each}
       </ol>
+      <button class="btn btn-primary" onclick={rewriteFlagged}>Rewrite {r.flagged.length === 1 ? 'this sentence' : `these ${r.flagged.length} sentences`}</button>
+    {:else}
+      <p>No sentence stands out.</p>
     {/if}
-    <p class="caveat">{CAVEAT}</p>
+    <p class="caveat">Other detectors, like GPTZero or Turnitin, give different numbers. Treat this as a guide, not proof.</p>
     <button class="btn btn-quiet close" onclick={() => session.cancelCheck()}>Close</button>
   </section>
 {:else if session.check.kind === 'error'}
-  <section class="checker" aria-label="AI-likelihood check">
+  <section class="checker" aria-label="AI check">
     <p>{session.check.message}</p>
     <button class="btn btn-quiet" onclick={() => session.cancelCheck()}>Close</button>
   </section>
@@ -58,7 +69,7 @@
   }
 
   .checker p {
-    margin: 0 0 0.5rem;
+    margin: 0 0 0.6rem;
     max-width: 62ch;
   }
 
@@ -68,32 +79,60 @@
     margin-top: 0.75rem;
   }
 
-  .verdict {
+  .score {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem 1.25rem;
     align-items: baseline;
-    font-size: 0.9rem;
+    gap: 0.6rem;
   }
 
-  .verdict strong {
-    font-family: var(--sans);
-    font-size: var(--t-lg);
-    font-weight: 600;
-  }
-
-  .verdict span {
-    font-size: var(--t-sm);
-    color: var(--ink-2);
+  .score strong {
+    font-size: var(--t-display);
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.03em;
     font-variant-numeric: tabular-nums;
   }
 
+  .score span {
+    font-size: var(--t-lg);
+    font-weight: 650;
+  }
+
+  .band-human {
+    color: var(--human);
+  }
+
+  .band-mixed {
+    color: var(--mixed);
+  }
+
+  .band-ai {
+    color: var(--ai);
+  }
+
   .muted {
+    font-size: var(--t-sm);
     color: var(--ink-2);
   }
 
+  .key {
+    font-weight: 650;
+  }
+
+  .key.human {
+    color: var(--human);
+  }
+
+  .key.mixed {
+    color: var(--mixed);
+  }
+
+  .key.ai {
+    color: var(--ai);
+  }
+
   ol {
-    margin: 0 0 0.75rem;
+    margin: 0 0 0.9rem;
     padding-left: 1.2rem;
   }
 
@@ -102,31 +141,34 @@
   }
 
   .quote {
+    vertical-align: top;
     border: 0;
     background: none;
     padding: 0;
     text-align: left;
     cursor: pointer;
-    font-family: var(--sans);
-    font-size: 0.95rem;
-    font-style: normal;
+    font: inherit;
+    font-size: var(--t-base);
+    color: var(--ink);
+    text-decoration: underline 2px var(--ai);
+    text-underline-offset: 0.25em;
   }
 
   .quote:hover {
-    text-decoration: underline;
-    text-decoration-color: var(--rule);
+    background: var(--ai-wash);
   }
 
   .caveat {
-    font-size: 0.72rem;
+    font-size: var(--t-xs);
     color: var(--ink-2);
+    margin-top: 0.8rem;
   }
 
   .close {
     position: absolute;
     top: 0.6rem;
     right: 0;
-    font-size: 0.72rem;
+    font-size: var(--t-xs);
     color: var(--ink-2);
   }
 </style>

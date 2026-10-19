@@ -64,6 +64,12 @@ check(
   check(!output.includes('—'), 'no em dashes in output');
   await page.screenshot({ path: `${shots}/ph-done.png`, fullPage: true });
 
+  // The headless shell has no WebGPU, so the AI check explains instead of starting.
+  await sheet.getByRole('button', { name: 'Check for AI' }).click();
+  await page.locator('.checker').waitFor();
+  check((await page.locator('.checker').textContent()).includes('needs WebGPU'), 'AI check explains it needs WebGPU');
+  await page.locator('.checker').getByRole('button', { name: 'Close' }).click();
+
   const first = page.locator('.manuscript .mark').first();
   await first.click();
   if ((await first.getAttribute('aria-pressed')) !== 'true') await first.click();

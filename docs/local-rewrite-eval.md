@@ -4,7 +4,7 @@ How the on-device model, the rewrite format and the prompt were chosen. Measured
 
 ## Yardstick
 
-A user's third-party detector rated a 370-word AI text at 77.5% before and after on-device rewrites with Qwen 2.5 1.5B and Llama 3.2 3B, and 45% after Gemini Flash rewrote two sentences. The Binoculars checker in this repo rated the same text as human, so it can't serve as a stand-in.
+A user's third-party detector rated a 370-word AI text at 77.5% before and after on-device rewrites with Qwen 2.5 1.5B and Llama 3.2 3B, and 45% after Gemini Flash rewrote two sentences. The Binoculars checker this repo shipped at the time rated the same text as human, so it couldn’t serve as a stand-in. The app now uses desklib for its AI check.
 
 [desklib/ai-text-detector-v1.01](https://huggingface.co/desklib/ai-text-detector-v1.01) (MIT, DeBERTa-v3-large) separates human from AI text well on a 24-text sample from the COLING 2025 MGT data: human texts scored a raw logit of -6 to +2.7, AI texts +3.7 to +12. Its probabilities saturate at 1.0 for every AI text, so the raw logit is the metric. Lower is more human; below 0 reads as human. Each run is also checked for meaning (embedding similarity per paragraph) and readability (words per sentence, share of sentences under five words), because one prompt fooled the detector with telegraphic fragments.
 

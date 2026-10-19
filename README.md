@@ -11,6 +11,7 @@
 - **Finds the tells.** Stock openers ("In today's fast-paced world"), filler ("It's important to note that"), hype words ("seamless", "transformative"), the "isn't just X, it's Y" construction, em dashes and chatbot sign-offs. Close to 80 English rules, with starter lists for German, Spanish, French and Portuguese.
 - **Fixes what it can on the spot**, then rewrites the text with a language model, paragraph by paragraph. A lighter mode rewrites only the sentences that read stiff and keeps the rest of your wording.
 - **Shows every change.** Click any sentence to see why it changed, accept it, put your original back, or type your own version.
+- **Checks for AI.** After a rewrite, an open AI detector runs in your browser and gives the text a score, marks each part green, yellow or red, and highlights the sentences that push the score up the most. One click rewrites just those.
 - **Keeps your facts.** Numbers, names, links and quotes are locked before the model sees the text, and every rewrite is checked for meaning before it's used.
 
 ![Trying the sample: clean-up, checking and restoring a change, then rewriting every sentence with Qwen3 4B on a laptop GPU](.github/media/review.gif)
@@ -81,7 +82,7 @@ node scripts/mock-llm.mjs 8788 700 &
 CHROMIUM_PATH=/path/to/chromium node tests/e2e/flow.mjs
 ```
 
-The other suites in `tests/e2e/` take the same arguments: `firstrun`, `pause`, `resume`, `long` and `phase2`. `tests/e2e/ondevice.mjs` and `tests/e2e/longpause.mjs` (pause, leave it idle, resume) run the real on-device model and need a full (headed) Chromium with WebGPU on a machine with a GPU.
+The other suites in `tests/e2e/` take the same arguments: `firstrun`, `pause`, `resume`, `long` and `phase2`. `tests/e2e/ondevice.mjs` and `tests/e2e/longpause.mjs` (pause, leave it idle, resume) run the real on-device model and need a full (headed) Chromium with WebGPU on a machine with a GPU. So do `tests/e2e/checker.mjs` and `tests/e2e/checkloop.mjs` (rewrite, check, rewrite the flagged sentences, check again), which also take a build pointed at a local copy of the detector through `VITE_DETECTOR_HOST` and `VITE_DETECTOR_MODEL`.
 
 ## How it works
 
@@ -92,7 +93,19 @@ The other suites in `tests/e2e/` take the same arguments: `firstrun`, `pause`, `
 5. **Validate** every rewrite: tokens intact, no new numbers or names, sensible length, same language, and a meaning check with a multilingual sentence embedding ([paraphrase-multilingual-MiniLM-L12-v2](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2)). Up to three tries; anything that still fails keeps your original.
 6. **Review**: every change is shown and can be accepted, undone or edited.
 
-Built with Svelte 5, Vite, [WebLLM](https://github.com/mlc-ai/web-llm) and [Transformers.js](https://github.com/huggingface/transformers.js). An experimental AI-likelihood checker (Binoculars) is behind `?checker`; its measured accuracy is in [docs/detector-benchmark.md](docs/detector-benchmark.md).
+Built with Svelte 5, Vite, [WebLLM](https://github.com/mlc-ai/web-llm) and [Transformers.js](https://github.com/huggingface/transformers.js).
+
+## The AI check
+
+The check runs [desklib/ai-text-detector-v1.01](https://huggingface.co/desklib/ai-text-detector-v1.01) (MIT) in the browser on WebGPU. It ships as [YatoVoid/forsakeai-detector](https://huggingface.co/YatoVoid/forsakeai-detector), a 438 MB copy with int8 weights and fp32 math. Its scores match the full 1.7 GB model to within 0.13 logits (`scripts/detector-quantize.py` builds it).
+
+1. Prose is packed into windows of up to 360 words, about what the detector reads in one pass, and each window gets a score.
+2. A single sentence is too short for any detector to judge. So in every window that reads mixed or AI, each sentence is left out in turn, and the ones whose removal drops the score most are highlighted.
+3. "Rewrite these sentences" sends only those to the model, with their neighbours as context.
+
+The check and the rewrite model take turns on the graphics card, since both together don't fit on a 6 GB card. On an RTX 3050 laptop GPU, a 500-word text checks in about 10 seconds, including loading the model.
+
+The score comes from one open detector. GPTZero, Turnitin and the rest will give other numbers. A stock five-paragraph essay still reads 99% AI after two rounds of rewriting the flagged sentences, because the structure gives it away.
 
 ## License
 

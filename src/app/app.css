@@ -10,6 +10,10 @@
   --accent-wash: #e9ecff;
   --removed: #6b717c;
   --focus: #2238d6;
+  --human: #1d7a46;
+  --mixed: #a3650a;
+  --ai: #c42b2b;
+  --ai-wash: #fde8e6;
 
   --sans: 'Schibsted Grotesk Variable', 'Helvetica Neue', Arial, sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -42,6 +46,10 @@
     --accent-wash: #1d2142;
     --removed: #8a909b;
     --focus: #8e9cff;
+    --human: #4cc283;
+    --mixed: #e3a13d;
+    --ai: #ff7b70;
+    --ai-wash: #3a1c1c;
     color-scheme: dark;
   }
 }
@@ -58,6 +66,10 @@
   --accent-wash: #1d2142;
   --removed: #8a909b;
   --focus: #8e9cff;
+  --human: #4cc283;
+  --mixed: #e3a13d;
+  --ai: #ff7b70;
+  --ai-wash: #3a1c1c;
   color-scheme: dark;
 }
 

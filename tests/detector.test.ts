@@ -1,108 +1,96 @@
 import { describe, expect, it } from 'vitest';
-import { binocularsScore, concatTerms, rangeScore, tokenTerms } from '../src/detector/binoculars';
-import { present, type Calibration } from '../src/detector/present';
+import { analyze, band, pickFlags, units, type CheckBlock } from '../src/detector/analyze';
 
-describe('binoculars math', () => {
-  it('matches a hand-computed two-token example', () => {
-    const vocab = 3;
-    const observer = Float32Array.from([0, 0, 0, 1, 2, 3]);
-    const performer = Float32Array.from([1, 0, 0, 0, 0, 0]);
-    const terms = tokenTerms(observer, performer, [0, 0], vocab);
-    const lse = Math.log(Math.exp(1) + 2);
-    expect(terms.ppl[0]).toBeCloseTo(-(1 - lse), 10);
-    const lp = [1 - lse, -lse, -lse];
-    expect(terms.xppl[0]).toBeCloseTo(-(lp[0]! + lp[1]! + lp[2]!) / 3, 10);
-    expect(terms.ppl.length).toBe(1);
-  });
+const words = (n: number, w = 'word') => Array.from({ length: n }, () => w).join(' ');
 
-  it('scores lower when the performer finds the text unsurprising', () => {
-    const vocab = 4;
-    const flat = new Float32Array(vocab * 3);
-    const confident = Float32Array.from([9, 0, 0, 0, 9, 0, 0, 0, 9, 0, 0, 0]);
-    const predictable = binocularsScore(tokenTerms(flat, confident, [0, 0, 0, 0], vocab));
-    const surprising = binocularsScore(tokenTerms(flat, confident, [0, 1, 2, 3], vocab));
-    expect(predictable).toBeLessThan(surprising);
-  });
-
-  it('merges windows and scores ranges', () => {
-    const a = { ppl: Float64Array.from([1, 2]), xppl: Float64Array.from([2, 2]) };
-    const b = { ppl: Float64Array.from([3]), xppl: Float64Array.from([2]) };
-    const all = concatTerms([a, b]);
-    expect(Array.from(all.ppl)).toEqual([1, 2, 3]);
-    expect(binocularsScore(all)).toBeCloseTo(1, 10);
-    expect(rangeScore(all, 0, 2, 1)).toBeCloseTo(0.75, 10);
-    expect(rangeScore(all, 0, 2)).toBeUndefined();
+describe('units', () => {
+  it('skips short blocks and splits long ones', () => {
+    const blocks: CheckBlock[] = [
+      { id: 'h', sentences: [{ id: 'h1', text: 'What method does Socrates use?' }] },
+      { id: 'p', sentences: [{ id: 'a', text: words(200) + '.' }, { id: 'b', text: words(200) + '.' }] },
+    ];
+    const u = units(blocks);
+    expect(u.map((x) => x.sentences.map((s) => s.id))).toEqual([['a'], ['b']]);
   });
 });
 
-describe('present', () => {
-  const calibration: Calibration = {
-    created: '2026-10-17',
-    noise: 0.5,
-    builds: {
-      wasm: {
-        eng: { slope: 40, midpoint: 0.85, auc: 0.97, aiBelow: 0.78, humanAbove: 0.9, falsePositiveRate: 0.01, truePositiveRate: 0.9, humanTexts: 200, aiTexts: 200 },
-        rus: { slope: 20, midpoint: 0.85, auc: 0.8, aiBelow: 0.7, humanAbove: 0.95, falsePositiveRate: 0.1, truePositiveRate: 0.6, humanTexts: 60, aiTexts: 60 },
+describe('pickFlags', () => {
+  it('flags sentences whose removal drops the score a lot', () => {
+    expect(pickFlags(['a', 'b', 'c', 'd'], 1, [0.9, -0.9, 0.8, 1.2], 'mixed')).toEqual([{ id: 'b', push: 1.9 }]);
+  });
+
+  it('points at the worst sentence when a paragraph reads AI but none stands out', () => {
+    expect(pickFlags(['a', 'b', 'c', 'd'], 3, [2.9, 2.7, 3.1, 2.95], 'ai').map((f) => f.id)).toEqual(['b']);
+  });
+
+  it('flags nothing in a mixed paragraph without a clear culprit', () => {
+    expect(pickFlags(['a', 'b'], 0.2, [0.1, 0.15], 'mixed')).toEqual([]);
+  });
+
+  it('never flags more than half the paragraph', () => {
+    expect(pickFlags(['a', 'b', 'c', 'd'], 5, [1, 1, 1, 1], 'ai')).toHaveLength(2);
+  });
+});
+
+describe('analyze', () => {
+  it('scores a page at a time and runs leave-one-out only where it reads AI', async () => {
+    const human = words(30, 'calm') + '.';
+    const robot = words(30, 'delve') + '.';
+    const blocks: CheckBlock[] = [
+      { id: 'p1', sentences: [{ id: 'h1', text: human }] },
+      { id: 'p2', sentences: [{ id: 'r1', text: human }, { id: 'r2', text: robot }] },
+      { id: 'q', sentences: [{ id: 'q1', text: 'What was your takeaway?' }] },
+    ];
+    const calls: string[][] = [];
+    // A stand-in detector: each "delve" adds to the logit.
+    const score = async (texts: string[], onBatch?: (n: number) => void) => {
+      calls.push(texts);
+      onBatch?.(texts.length);
+      return texts.map((t) => (t.match(/delve/g)?.length ?? 0) / 5 - 2);
+    };
+    const progress: Array<[number, number]> = [];
+    const r = await analyze(blocks, score, (d, t) => progress.push([d, t]));
+    expect(r.windows.map((w) => [w.blockIds, w.band])).toEqual([[['p1', 'p2'], 'ai']]);
+    expect(calls[0]![0]).toBe(`${human}\n\n${human} ${robot}`);
+    expect(calls[1]).toHaveLength(3);
+    expect(calls[1]![0]).toBe(`${human} ${robot}`);
+    expect(r.flagged.map((f) => f.id)).toEqual(['r2']);
+    expect(r.words).toBe(90);
+    expect(r.ai).toBeCloseTo(1 / (1 + Math.exp(-4)), 6);
+    expect(progress.at(-1)).toEqual([4, 4]);
+  });
+
+  it('fills windows to the detector limit and evens out a short last one', () => {
+    const para = (i: number) => ({ id: `p${i}`, sentences: [{ id: `s${i}`, text: words(100) + '.' }] });
+    expect(units(Array.from({ length: 7 }, (_, i) => para(i))).map((u) => u.words)).toEqual([300, 200, 200]);
+    expect(units(Array.from({ length: 5 }, (_, i) => para(i))).map((u) => u.words)).toEqual([300, 200]);
+  });
+
+  it('bands', () => {
+    expect([band(0.1), band(0.5), band(0.9)]).toEqual(['human', 'mixed', 'ai']);
+  });
+});
+
+describe('pickBest', () => {
+  it('keeps the version the detector scores lowest, and the original when nothing beats it', async () => {
+    const { pickBest } = await import('../src/detector/refine');
+    const blocks: CheckBlock[] = [
+      {
+        id: 'p',
+        sentences: [
+          { id: 'a', text: words(15, 'delve') + '.' },
+          { id: 'b', text: words(15, 'calm') + '.' },
+        ],
       },
-    },
-  };
-  const base = { device: 'wasm' as const, sentences: [] };
-
-  it('calls a low score likely AI with high confidence on long English text', () => {
-    const p = present({ ...base, score: 0.7, tokens: 400, lang: 'eng' }, calibration, 'English')!;
-    expect(p.verdict).toBe('likely-ai');
-    expect(p.confidence).toBe('high');
-    expect(p.low).toBeGreaterThan(90);
-  });
-
-  it('stays unclear between the cutoffs even when the curve leans one way', () => {
-    const p = present({ ...base, score: 0.8, tokens: 400, lang: 'eng' }, calibration, 'English')!;
-    expect(p.verdict).toBe('unclear');
-  });
-
-  it('keeps the range consistent with the verdict', () => {
-    const p = present({ ...base, score: 0.7, tokens: 400, lang: 'eng' }, calibration, 'English')!;
-    expect(p.low).toBeGreaterThanOrEqual(50);
-  });
-
-  it('calls a high score likely human', () => {
-    const p = present({ ...base, score: 1.0, tokens: 400, lang: 'eng' }, calibration, 'English')!;
-    expect(p.verdict).toBe('likely-human');
-    expect(p.high).toBeLessThan(10);
-  });
-
-  it('widens the range and lowers confidence on short text', () => {
-    const long = present({ ...base, score: 0.85, tokens: 400, lang: 'eng' }, calibration, 'English')!;
-    const short = present({ ...base, score: 0.85, tokens: 60, lang: 'eng' }, calibration, 'English')!;
-    expect(short.high - short.low).toBeGreaterThan(long.high - long.low);
-    expect(short.confidence).toBe('low');
-    expect(long.verdict).toBe('unclear');
-  });
-
-  it('says when a language is untested or unreliable', () => {
-    const untested = present({ ...base, score: 0.7, tokens: 400, lang: 'spa' }, calibration, 'Spanish')!;
-    expect(untested.confidence).toBe('low');
-    expect(untested.verdict).toBe('unclear');
-    expect(untested.caveats[0]).toContain("hasn't been tested on Spanish");
-    const weak = present({ ...base, score: 0.7, tokens: 400, lang: 'rus' }, calibration, 'Russian')!;
-    expect(weak.confidence).toBe('low');
-    expect(weak.caveats[0]).toContain('unreliable on Russian');
-  });
-
-  it('never accuses in a language with a high false-positive rate, or an untested one', () => {
-    const weak = present({ ...base, score: 0.5, tokens: 400, lang: 'rus' }, calibration, 'Russian')!;
-    expect(weak.verdict).toBe('unclear');
-    expect(weak.caveats.join(' ')).toContain('wrongly flagged too much human writing');
-    const untested = present({ ...base, score: 0.5, tokens: 400, lang: 'spa' }, calibration, 'Spanish')!;
-    expect(untested.verdict).toBe('unclear');
-  });
-
-  it('picks the three most machine-like sentences', () => {
-    const p = present(
-      { ...base, score: 0.8, tokens: 400, lang: 'eng', sentences: [{ id: 'a', score: 0.9 }, { id: 'b', score: 0.6 }, { id: 'c', score: undefined }, { id: 'd', score: 0.7 }, { id: 'e', score: 0.8 }] },
-      calibration,
-      'English',
-    )!;
-    expect(p.drivers).toEqual(['b', 'd', 'e']);
+    ];
+    const score = async (texts: string[]) => texts.map((t) => (t.match(/delve/g)?.length ?? 0) - (t.match(/plain/g)?.length ?? 0));
+    const versions = new Map([
+      ['a', [words(15, 'delve') + ' delve.', words(15, 'plain') + '.', words(10, 'delve') + '.']],
+      ['b', [words(15, 'delve') + '.']],
+    ]);
+    const picks = await pickBest(blocks, versions, score);
+    expect(picks.get('a')?.text).toBe(words(15, 'plain') + '.');
+    expect(picks.get('a')?.gain).toBe(30);
+    expect(picks.has('b')).toBe(false);
   });
 });

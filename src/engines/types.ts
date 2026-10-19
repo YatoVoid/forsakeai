@@ -4,6 +4,8 @@ export interface CompletionRequest {
   signal: AbortSignal;
   /** Upper bound on generated tokens. Engines that run small models honour it; API engines ignore it. */
   maxTokens?: number;
+  /** Sampling temperature. Only on-device models and local servers honour it; hosted reasoning models reject it. */
+  temperature?: number;
   /** Called with the running count of generated characters. */
   onProgress?: (chars: number) => void;
 }

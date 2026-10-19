@@ -5,15 +5,19 @@ import {
   buildParagraphPrompt,
   buildPrompt,
   buildSentencePrompt,
+  buildVariantPrompt,
+  buildVariantsPrompt,
   parseParagraphResponse,
   parseResponse,
   parseSentenceResponse,
+  parseVariants,
   type BuiltPrompt,
   type PassMode,
   type Register,
+  type VariantStyle,
 } from './prompt';
 import { protect, repairTokens, unprotect } from './protect';
-import { splitSentences } from './parse';
+import { proposedText, splitSentences } from './parse';
 import type { Block, Doc, Sentence } from './types';
 import { contentStems, droppedNames, stockDiff, validateRewrite, type LangDetect } from './validate';
 import type { VoiceProfile } from './voice';
@@ -129,12 +133,13 @@ async function completeWithRetry(
   opts: RunOptions,
   cb: RunCallbacks,
   maxTokens?: number,
+  temperature?: number,
 ): Promise<string> {
   const max = opts.maxTransientRetries ?? 6;
   const sleep = opts.sleep ?? defaultSleep;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await engine.complete({ system: prompt.system, user: prompt.user, signal: opts.signal, onProgress: cb.onProgress, maxTokens });
+      return await engine.complete({ system: prompt.system, user: prompt.user, signal: opts.signal, onProgress: cb.onProgress, maxTokens, temperature });
     } catch (err) {
       if (opts.signal.aborted) throw new EngineError('aborted', 'Stopped');
       if (!(err instanceof EngineError) || !err.retryable || attempt >= max) throw err;
@@ -343,6 +348,64 @@ async function rewriteSentence(
   if (!valid.length) return { reasons };
   valid.sort((a, b) => a.left.length - b.left.length || b.similarity - a.similarity);
   return { rewrite: valid[0]!.rewrite, reasons: [] };
+}
+
+/**
+ * Versions drawn per flagged sentence on small models, one request each. In testing,
+ * picking the best of six by detector score cut a window's logit by 1.5 to 3.
+ */
+const VARIANT_PLAN: Array<{ style: VariantStyle; temperature: number }> = [
+  { style: 'plain', temperature: 0.7 },
+  { style: 'plain', temperature: 0.9 },
+  { style: 'reshape', temperature: 0.8 },
+  { style: 'reshape', temperature: 1.0 },
+  { style: 'reshape', temperature: 1.0 },
+  { style: 'reshape', temperature: 1.1 },
+];
+/** API models write this many versions in one reply. */
+const API_VARIANTS = 5;
+
+/**
+ * Alternative versions of one sentence that pass the same checks as any rewrite:
+ * locked tokens intact, nothing invented, same language, same meaning.
+ */
+export async function sentenceVariants(doc: Doc, id: string, engine: Engine, opts: RunOptions, cb: RunCallbacks = {}): Promise<string[]> {
+  const block = doc.blocks.find((b) => b.sentences.some((s) => s.id === id));
+  if (!block) return [];
+  const at = block.sentences.findIndex((s) => s.id === id);
+  const current = proposedText(block.sentences[at]!);
+  const textAt = (i: number) => (block.sentences[i] ? proposedText(block.sentences[i]!) : '');
+  const before = textAt(at - 1);
+  const near = [before, textAt(at + 1)].filter(Boolean);
+  const { masked, slots } = protect(current);
+  const base = { register: opts.register, lang: block.lang, voice: opts.voice };
+
+  const replies: string[] = [];
+  if (engine.granularity === 'sentence') {
+    for (const { style, temperature } of VARIANT_PLAN) {
+      if (opts.signal.aborted) throw new EngineError('aborted', 'Stopped');
+      const prompt = buildVariantPrompt(masked, before, { ...base, style });
+      const reply = await completeWithRetry(engine, { ...prompt, targets: [] }, opts, cb, sentenceTokenCap(masked), temperature);
+      replies.push(parseSentenceResponse(reply) ?? '');
+    }
+  } else {
+    const prompt = buildVariantsPrompt(masked, before, API_VARIANTS, base);
+    replies.push(...parseVariants(await completeWithRetry(engine, { ...prompt, targets: [] }, opts, cb)));
+  }
+
+  const out: string[] = [];
+  const short = masked.split(/\s+/).length <= SHORT_SENTENCE_WORDS;
+  for (const raw of replies) {
+    const reply = repairTokens(masked, raw);
+    if (validateRewrite(masked, reply, block.lang, opts.detect, near, { lexicalMeaning: !opts.meaning }).length) continue;
+    if (opts.meaning) {
+      const [own = 0, ...others] = await opts.meaning.similarity(reply, [masked, ...near]);
+      if (own < (short ? MIN_SIMILARITY_SHORT : MIN_SIMILARITY) || others.some((o) => o > own + NEIGHBOUR_MARGIN)) continue;
+    }
+    const text = unprotect(reply, slots);
+    if (text !== current && !out.includes(text)) out.push(text);
+  }
+  return out;
 }
 
 /** Room for a rewrite up to about twice the paragraph's length. */

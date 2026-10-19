@@ -97,6 +97,7 @@ async function completeOpenAi(cfg: ByokConfig, req: CompletionRequest): Promise<
         stream: true,
         // Hosted reasoning models reject max_tokens, so only local servers get the cap.
         ...(cfg.provider === 'local' && req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+        ...(cfg.provider === 'local' && req.temperature !== undefined ? { temperature: req.temperature } : {}),
         messages: [
           { role: 'system', content: req.system },
           { role: 'user', content: req.user },

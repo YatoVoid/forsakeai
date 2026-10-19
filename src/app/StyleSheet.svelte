@@ -157,6 +157,9 @@
           <p class="engine"><SlidersHorizontal class="icon" aria-hidden="true" /><span>{engineLabel}</span><button class="link" onclick={() => onSettings(false)}>Change</button></p>
         {:else}
           <button class="btn btn-primary wide" onclick={onCopy}><ClipboardCopy class="icon" aria-hidden="true" /> {copied ? 'Copied' : 'Copy the text'}</button>
+          {#if session.check.kind === 'idle' || session.check.kind === 'working'}
+            <button class="btn wide" onclick={() => session.startCheck()} disabled={session.check.kind === 'working'}><ScanSearch class="icon" aria-hidden="true" /> {session.check.kind === 'working' ? 'Checking…' : 'Check for AI'}</button>
+          {/if}
           {#if askSupport}
             <p class="support">Saved you some time? <a href="https://buymeacoffee.com/walilambere" target="_blank" rel="noopener noreferrer">Buy me a coffee</a></p>
           {/if}
@@ -196,7 +199,7 @@
           />
         {/if}
 
-        <CheckerPanel {session} />
+        <CheckerPanel {session} {onRewrite} />
 
         {#if entries.length}
           {#each groups as g (g.status)}
@@ -233,8 +236,8 @@
               <button role="menuitem" onclick={() => download('txt')}>Plain text (.txt)</button>
             </div>
           </details>
-          {#if session.checkerEnabled && phase !== 'running'}
-            <button class="btn" onclick={() => session.startCheck()} disabled={session.check.kind === 'working'}><ScanSearch class="icon" aria-hidden="true" /> Check it</button>
+          {#if phase === 'review' || phase === 'paused'}
+            <button class="btn" onclick={() => session.startCheck()} disabled={session.check.kind === 'working'}><ScanSearch class="icon" aria-hidden="true" /> Check for AI</button>
           {/if}
         </div>
 

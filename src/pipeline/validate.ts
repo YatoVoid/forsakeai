@@ -148,6 +148,7 @@ const FUNCTION_WORDS: Record<string, Set<string>> = {
   spa: new Set('el los las es y que una del por para con pero como está muy también lo su sus ella ellos'.split(' ')),
   deu: new Set('der das und ist nicht ein eine mit auch sich auf für dass wenn er sie es ich wir sind'.split(' ')),
   por: new Set('os um uma não que com para mais como mas ele ela isso muito são está'.split(' ')),
+  ita: new Set('il lo gli di che è per non una con sono della del nel alla questo anche ma più ha'.split(' ')),
 };
 
 export function drifted(sentence: string, lang: string): boolean {

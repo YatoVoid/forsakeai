@@ -96,7 +96,7 @@ export async function loadLocalEngine(
     await active.resetChat();
     const stream = await active.chat.completions.create({
       stream: true,
-      temperature: 0.6,
+      temperature: req.temperature ?? 0.6,
       max_tokens: req.maxTokens ?? 1200,
       ...thinkingOff(model),
       messages: [

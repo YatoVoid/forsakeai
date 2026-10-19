@@ -1,6 +1,7 @@
 <script lang="ts">
   import { wordDiff } from '../lib/diff';
   import { proposedText, sentenceText } from '../pipeline/parse';
+  import type { Band } from '../detector/analyze';
   import type { Block, Doc, Sentence } from '../pipeline/types';
 
   let {
@@ -8,19 +9,32 @@
     view = 'changes',
     selectedId,
     activeIds = [],
+    bands = new Map(),
+    flagged = new Set(),
     onSelect,
   }: {
     doc: Doc;
     view?: 'changes' | 'clean';
     selectedId: string | null;
     activeIds?: string[];
+    /** From the AI check: each paragraph's band and score. */
+    bands?: Map<string, { band: Band; ai: number }>;
+    /** From the AI check: sentences that push their paragraph's score up most. */
+    flagged?: Set<string>;
     onSelect: (id: string | null) => void;
   } = $props();
+
+  const BAND_LABEL = { human: 'reads human', mixed: 'mixed', ai: 'reads AI' } as const;
+
+  function bandTitle(b: Block): string | undefined {
+    const r = bands.get(b.id);
+    return r ? `AI check: ${Math.round(r.ai * 100)}%, ${BAND_LABEL[r.band]}` : undefined;
+  }
 
   const active = $derived(new Set(activeIds));
 
   function interactive(s: Sentence): boolean {
-    return proposedText(s) !== s.source || s.stiff || s.status === 'kept';
+    return proposedText(s) !== s.source || s.stiff || s.status === 'kept' || flagged.has(s.id);
   }
 
   function headingLevel(b: Block): number {
@@ -36,7 +50,7 @@
     return (/^\s*/.exec(b.lead)?.[0].length ?? 0) / 2;
   }
 
-  function flagged(s: Sentence): Array<{ text: string; flag?: string }> {
+  function stiffParts(s: Sentence): Array<{ text: string; flag?: string }> {
     const flags = s.flags.filter((f) => !f.fixed && f.start >= 0).sort((a, b) => a.start - b.start);
     const out: Array<{ text: string; flag?: string }> = [];
     let pos = 0;
@@ -95,12 +109,13 @@
       class:selected={selectedId === s.id}
       class:working={active.has(s.id)}
       class:kept={s.status === 'kept' && !changed}
+      class:flagged={flagged.has(s.id)}
       data-id={s.id}
       role="button"
       tabindex="0"
       aria-pressed={selectedId === s.id}
       onkeydown={(e) => onKey(e, s.id)}
-    >{#if changed && s.decision === 'rejected'}<span class="undone">{s.source}</span>{:else if changed && (s.decision === 'accepted' || s.edited)}{proposed}{:else if changed}{#each wordDiff(s.source, proposed) as part, i (i)}{#if part.op === 'delete'}<del class="removed">{part.text}</del>{:else if part.op === 'insert'}<ins class="added">{part.text}</ins>{:else}{part.text}{/if}{/each}{#if !proposed}<span class="visually-hidden">(sentence removed)</span>{/if}{:else}{#each flagged(s) as seg, i (i)}{#if seg.flag}<span class="stiff" title={seg.flag}>{seg.text}</span>{:else}{seg.text}{/if}{/each}{/if}</span>{s.trailing}{/if}
+    >{#if changed && s.decision === 'rejected'}<span class="undone">{s.source}</span>{:else if changed && (s.decision === 'accepted' || s.edited)}{proposed}{:else if changed}{#each wordDiff(s.source, proposed) as part, i (i)}{#if part.op === 'delete'}<del class="removed">{part.text}</del>{:else if part.op === 'insert'}<ins class="added">{part.text}</ins>{:else}{part.text}{/if}{/each}{#if !proposed}<span class="visually-hidden">(sentence removed)</span>{/if}{:else}{#each stiffParts(s) as seg, i (i)}{#if seg.flag}<span class="stiff" title={seg.flag}>{seg.text}</span>{:else}{seg.text}{/if}{/each}{/if}{#if flagged.has(s.id)}<span class="visually-hidden">(flagged by the AI check)</span>{/if}</span>{s.trailing}{/if}
 {/snippet}
 
 {#snippet sentences(b: Block)}
@@ -114,9 +129,9 @@
     {#if b.kind === 'heading'}
       <svelte:element this={`h${headingLevel(b)}`} class="h">{@render sentences(b)}</svelte:element>
     {:else if b.kind === 'paragraph'}
-      <p>{@render sentences(b)}</p>
+      <p class="band-{bands.get(b.id)?.band ?? 'none'}" title={bandTitle(b)}>{@render sentences(b)}</p>
     {:else if b.kind === 'list-item'}
-      <p class="li" style:margin-inline-start="{indent(b) * 1.25}rem">
+      <p class="li band-{bands.get(b.id)?.band ?? 'none'}" title={bandTitle(b)} style:margin-inline-start="{indent(b) * 1.25}rem">
         <span class="marker" aria-hidden="true">{marker(b)}</span><span>{@render sentences(b)}</span>
       </p>
     {:else if b.kind === 'code' || b.kind === 'table'}
@@ -228,6 +243,37 @@
 
   .working {
     animation: pulse 1.6s ease-in-out infinite;
+  }
+
+  p[class*='band-']:not(.band-none) {
+    position: relative;
+  }
+
+  p[class*='band-']:not(.band-none)::before {
+    content: '';
+    position: absolute;
+    inset-block: 0.3em;
+    inset-inline-start: -0.8rem;
+    width: 3px;
+    border-radius: 2px;
+  }
+
+  .band-human::before {
+    background: var(--human);
+  }
+
+  .band-mixed::before {
+    background: var(--mixed);
+  }
+
+  .band-ai::before {
+    background: var(--ai);
+  }
+
+  .flagged {
+    background: var(--ai-wash);
+    text-decoration: underline 2px var(--ai);
+    text-underline-offset: 0.25em;
   }
 
   .kept {

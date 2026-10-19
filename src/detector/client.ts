@@ -1,91 +1,97 @@
-import { DOWNLOAD_MB, MAX_TOKENS, OBSERVER, PERFORMER, type DetectorDevice, type WorkerRequest, type WorkerResponse } from './protocol';
+import { DETECTOR_HOST, DETECTOR_MODEL, DOWNLOAD_MB, type DetectorDevice, type WorkerRequest, type WorkerResponse } from './protocol';
 
-export type CheckerProgress =
-  | { phase: 'download'; loadedMB: number; totalMB: number }
-  | { phase: 'scoring'; done: number; total: number };
-
-export interface CheckerResult {
-  device: DetectorDevice;
-  tokens: number;
-  score: number;
-  sentences: Array<{ id: string; score: number | undefined }>;
-}
+export type LoadProgress = { loadedMB: number; totalMB: number };
 
 let worker: Worker | null = null;
 let ready: DetectorDevice | null = null;
+let nextId = 1;
 
 export async function pickDevice(): Promise<DetectorDevice> {
   try {
-    const adapter = await navigator.gpu?.requestAdapter();
-    if (adapter?.features.has('shader-f16')) return 'webgpu';
+    if (await navigator.gpu?.requestAdapter()) return 'webgpu';
   } catch {
     // Fall through to WASM.
   }
   return 'wasm';
 }
 
-export const downloadMB = (device: DetectorDevice) => DOWNLOAD_MB[device];
+export const downloadMB = () => DOWNLOAD_MB;
 
-/** Whether the model files for this device are already in the browser cache. */
-export async function isCheckerCached(device: DetectorDevice): Promise<boolean> {
+const weightsUrl = () =>
+  DETECTOR_HOST ? `${DETECTOR_HOST}${DETECTOR_MODEL}/onnx/model.onnx_data` : `https://huggingface.co/${DETECTOR_MODEL}/resolve/main/onnx/model.onnx_data`;
+
+/** Whether the model weights are already in the browser cache. */
+export async function isCheckerCached(): Promise<boolean> {
   try {
     const cache = await caches.open('transformers-cache');
-    const file = device === 'webgpu' ? 'model_q4f16.onnx' : 'model_int8.onnx';
-    const urls = [OBSERVER, PERFORMER].map((m) => `https://huggingface.co/${m}/resolve/main/onnx/${file}`);
-    const hits = await Promise.all(urls.map((u) => cache.match(u)));
-    return hits.every(Boolean);
+    return !!(await cache.match(weightsUrl()));
   } catch {
     return false;
   }
 }
 
-function request(msg: WorkerRequest, onProgress: (p: CheckerProgress) => void): Promise<WorkerResponse> {
+function send(msg: WorkerRequest, onMessage: (m: WorkerResponse) => boolean): Promise<void> {
   return new Promise((resolve, reject) => {
     const w = worker!;
-    const onMessage = (e: MessageEvent<WorkerResponse>) => {
+    const done = () => {
+      w.removeEventListener('message', listener);
+      w.removeEventListener('error', onError);
+    };
+    const listener = (e: MessageEvent<WorkerResponse>) => {
       const m = e.data;
-      if (m.type === 'download') onProgress({ phase: 'download', loadedMB: m.loaded / 2 ** 20, totalMB: m.total / 2 ** 20 });
-      else if (m.type === 'scoring') onProgress({ phase: 'scoring', done: m.done, total: m.total });
-      else {
-        w.removeEventListener('message', onMessage);
-        w.removeEventListener('error', onError);
-        if (m.type === 'error') reject(new Error(m.message));
-        else resolve(m);
+      if (m.type === 'error') {
+        done();
+        reject(new Error(m.message));
+      } else if (onMessage(m)) {
+        done();
+        resolve();
       }
     };
     const onError = (e: ErrorEvent) => {
-      w.removeEventListener('message', onMessage);
-      w.removeEventListener('error', onError);
+      done();
       reject(new Error(e.message || 'The checker crashed.'));
     };
-    w.addEventListener('message', onMessage);
+    w.addEventListener('message', listener);
     w.addEventListener('error', onError);
     w.postMessage(msg);
   });
 }
 
-export async function loadChecker(device: DetectorDevice, onProgress: (p: CheckerProgress) => void): Promise<void> {
-  if (ready === device) return;
+export async function loadChecker(device: DetectorDevice, onProgress: (p: LoadProgress) => void): Promise<void> {
+  if (ready === device && worker) return;
   worker?.terminate();
   worker = new Worker(new URL('./detector.worker.ts', import.meta.url), { type: 'module' });
   const ortBase = new URL(`${import.meta.env.BASE_URL}ort/`, location.origin).href;
   try {
-    await request({ type: 'load', device, ortBase }, onProgress);
+    await send({ type: 'load', device, ortBase, model: DETECTOR_MODEL, host: DETECTOR_HOST }, (m) => {
+      if (m.type === 'download') onProgress({ loadedMB: m.loaded / 2 ** 20, totalMB: m.total / 2 ** 20 });
+      return m.type === 'ready';
+    });
     ready = device;
   } catch (err) {
-    worker.terminate();
-    worker = null;
-    ready = null;
+    unloadChecker();
     throw err;
   }
 }
 
-export async function runChecker(
-  sentences: Array<{ id: string; text: string }>,
-  onProgress: (p: CheckerProgress) => void,
-): Promise<CheckerResult> {
+/** Frees the detector's memory, so the rewrite model has the graphics card to itself. */
+export function unloadChecker(): void {
+  worker?.terminate();
+  worker = null;
+  ready = null;
+}
+
+export async function scoreTexts(texts: string[], onBatch?: (done: number) => void): Promise<number[]> {
   if (!worker || !ready) throw new Error('Load the checker first.');
-  const result = await request({ type: 'score', sentences, maxTokens: MAX_TOKENS }, onProgress);
-  if (result.type !== 'result') throw new Error('Unexpected reply from the checker.');
-  return { device: result.device, tokens: result.tokens, score: result.score, sentences: result.sentences };
+  const id = nextId++;
+  let logits: number[] = [];
+  await send({ type: 'score', id, texts }, (m) => {
+    if (m.type === 'batch' && m.id === id) onBatch?.(m.done);
+    if (m.type === 'logits' && m.id === id) {
+      logits = m.logits;
+      return true;
+    }
+    return false;
+  });
+  return logits;
 }

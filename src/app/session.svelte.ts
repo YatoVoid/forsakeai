@@ -8,17 +8,16 @@ import { applyDialect, type Dialect } from '../pipeline/dialect';
 import { parse, proposedText, serialize } from '../pipeline/parse';
 import type { PassMode, Register } from '../pipeline/prompt';
 import { rulePass, type RulePassSummary } from '../pipeline/rulepass';
-import { indexDoc, isChunkDone, isProse, rewriteDoc, type MeaningScorer, type RewriteScope } from '../pipeline/run';
+import { indexDoc, isChunkDone, isProse, rewriteDoc, sentenceVariants, type MeaningScorer, type RewriteScope } from '../pipeline/run';
 import { MEANING_DOWNLOAD_MB } from '../meaning/protocol';
 import type { Doc, Sentence } from '../pipeline/types';
 import type { LangDetect } from '../pipeline/validate';
 import { buildVoiceProfile, type VoiceProfile } from '../pipeline/voice';
 import { formatDuration, Pace } from '../status/eta';
-import { isCheckerCached, loadChecker, pickDevice, runChecker, downloadMB } from '../detector/client';
+import { analyze, type Analysis, type Band } from '../detector/analyze';
+import { downloadMB, isCheckerCached, loadChecker, pickDevice, scoreTexts, unloadChecker, type LoadProgress as CheckerLoad } from '../detector/client';
+import { pickBest } from '../detector/refine';
 import type { DetectorDevice } from '../detector/protocol';
-import { present, type Calibration, type Presentation } from '../detector/present';
-import calibration from '../detector/calibration.json';
-import { languageName } from '../pipeline/prompt';
 import { sentenceText } from '../pipeline/parse';
 import { claimJob, deleteJob, latestUnfinishedJob, newJobId, pruneJobs, saveJob, type EngineChoice, type Job } from '../store/jobs';
 
@@ -28,7 +27,7 @@ export type CheckState =
   | { kind: 'idle' }
   | { kind: 'confirm'; device: DetectorDevice; mb: number }
   | { kind: 'working' }
-  | { kind: 'done'; result: Presentation; langName: string; quotes: Array<{ id: string; text: string }> }
+  | { kind: 'done'; result: Analysis }
   | { kind: 'error'; message: string };
 
 export interface Status {
@@ -85,13 +84,28 @@ export class Session {
   chunksTotal = $state(0);
   chunksDone = $state(0);
   check = $state<CheckState>({ kind: 'idle' });
-  readonly checkerEnabled = typeof location !== 'undefined' && new URLSearchParams(location.search).has('checker');
+  /** Worst band per paragraph from the last check, for the margin colours. */
+  checkBands = $derived.by(() => {
+    const out = new Map<string, { band: Band; ai: number }>();
+    if (this.check.kind !== 'done') return out;
+    for (const p of this.check.result.windows) {
+      for (const id of p.blockIds) {
+        const was = out.get(id);
+        if (!was || p.ai > was.ai) out.set(id, { band: p.band, ai: p.ai });
+      }
+    }
+    return out;
+  });
+  checkFlags = $derived(new Set(this.check.kind === 'done' ? this.check.result.flagged.map((f) => f.id) : []));
   voiceSample = $state(readStored(VOICE_KEY));
   dialect = $state<Dialect>((readStored(DIALECT_KEY) as Dialect) || 'as-written');
 
   voice = $derived<VoiceProfile | null>(buildVoiceProfile(this.voiceSample, this.doc?.lang ?? 'eng'));
 
   private job: Job | null = null;
+  /** Sentences the last check flagged, waiting for detector-picked rewrites on the next run. */
+  private refineIds: string[] | null = null;
+  private lastScore: number | null = null;
   /** franc's trigram tables are large, so detection loads on first use. */
   private detect: LangDetect | null = null;
   private controller: AbortController | null = null;
@@ -248,6 +262,9 @@ export class Session {
       return;
     }
     this.release = release;
+    // A check describes the text before this run, and its model would crowd the graphics card.
+    this.check = { kind: 'idle' };
+    unloadChecker();
     this.lastEngine = choice;
     this.job.engine = choice;
     this.job.register = this.register;
@@ -290,6 +307,13 @@ export class Session {
       } catch {
         meaning = null;
       }
+    }
+
+    if (this.refineIds) {
+      const ids = this.refineIds;
+      this.refineIds = null;
+      await this.refine(ids, engine, meaning, signal, choice);
+      return;
     }
 
     const index = indexDoc(this.doc);
@@ -525,8 +549,13 @@ export class Session {
   async startCheck(): Promise<void> {
     if (!this.doc || this.phase === 'running') return;
     const device = await pickDevice();
-    if (await isCheckerCached(device)) await this.runCheck(device);
-    else this.check = { kind: 'confirm', device, mb: downloadMB(device) };
+    // On the processor the detector took over 15 minutes for a 500-word text.
+    if (device !== 'webgpu') {
+      this.check = { kind: 'error', message: 'The AI check needs WebGPU, which this browser or device doesn’t have. It works in recent Chrome, Edge and Safari on a computer with a graphics card.' };
+      return;
+    }
+    if (await isCheckerCached()) await this.runCheck(device);
+    else this.check = { kind: 'confirm', device, mb: downloadMB() };
   }
 
   cancelCheck(): void {
@@ -537,51 +566,138 @@ export class Session {
     if (!this.doc) return;
     this.check = { kind: 'working' };
     try {
-      this.say('Loading the checker…', null, 'working');
-      await loadChecker(device, (p) => {
-        if (p.phase === 'download' && p.totalMB > 0) {
-          this.say(
-            `Downloading the checker · ${Math.round(p.loadedMB).toLocaleString()} / ${Math.round(p.totalMB).toLocaleString()} MB · only once`,
-            p.loadedMB / p.totalMB,
-            'working',
-          );
-        }
-      });
-      const sentences = this.doc.blocks
-        .filter((b) => b.editable)
-        .flatMap((b) => b.sentences.map((s) => ({ id: s.id, text: sentenceText(s) ? sentenceText(s) + s.trailing : '' })))
-        .filter((s) => s.text.trim());
-      const raw = await runChecker(sentences, (p) => {
-        if (p.phase === 'scoring') this.say(`Checking · part ${p.done} of ${p.total}`, p.done / p.total, 'working');
-      });
-      const langName = languageName(this.doc.lang);
-      const result = present({ ...raw, lang: this.doc.lang }, calibration as Calibration, langName);
-      if (!result) throw new Error('The checker has no calibration for this setup.');
-      const quotes = result.drivers.map((id) => ({ id, text: this.find(id) ? sentenceText(this.find(id)!) : '' }));
-      this.check = { kind: 'done', result, langName, quotes };
-      this.say('Checked.', null, 'quiet');
+      // The rewrite model and the detector don't both fit on most graphics cards.
+      if (device === 'webgpu') unloadLocalEngine();
+      const result = await this.checkNow(device);
+      this.check = { kind: 'done', result };
+      const n = result.flagged.length;
+      this.say(`AI check: ${Math.round(result.ai * 100)}%${n ? `, ${n} ${n === 1 ? 'sentence' : 'sentences'} flagged` : ''}.`, null, 'quiet');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.check = { kind: 'error', message: `The checker failed: ${message}` };
+      this.check = { kind: 'error', message: `The AI check failed: ${message}` };
       this.say(this.check.message, null, 'error');
     }
   }
 
-  markForRewrite(id: string): void {
+  private checkBlocks() {
+    return (this.doc?.blocks ?? []).filter(isProse).map((b) => ({
+      id: b.id,
+      sentences: b.sentences.map((s) => ({ id: s.id, text: sentenceText(s) })),
+    }));
+  }
+
+  private async loadCheck(device: DetectorDevice): Promise<void> {
+    this.say('Loading the AI check…', null, 'working');
+    await loadChecker(device, (p: CheckerLoad) => {
+      if (p.totalMB > 0) {
+        this.say(
+          `Downloading the AI check · ${Math.round(p.loadedMB).toLocaleString()} / ${Math.round(p.totalMB).toLocaleString()} MB · only once`,
+          p.loadedMB / p.totalMB,
+          'working',
+        );
+      }
+    });
+  }
+
+  private async checkNow(device: DetectorDevice): Promise<Analysis> {
+    await this.loadCheck(device);
+    this.say('Checking…', 0, 'working');
+    const result = await analyze(this.checkBlocks(), scoreTexts, (done, total) => this.say(`Checking · ${done} of ${total} passes`, done / total, 'working'));
+    if (!result.windows.length) throw new Error('There is not enough prose to check. It needs paragraphs of about 20 words or more.');
+    return result;
+  }
+
+  /**
+   * Writes several versions of each flagged sentence, then lets the detector pick.
+   * The two models take turns on the graphics card: all versions first, then the scoring.
+   */
+  private async refine(ids: string[], engine: Engine, meaning: MeaningScorer | null, signal: AbortSignal, choice: EngineChoice): Promise<void> {
+    const doc = this.doc!;
+    const before = this.lastScore;
+    this.sentencesTotal = ids.length;
+    this.sentencesDone = 0;
+    try {
+      const detect = await this.lang();
+      const versions = new Map<string, string[]>();
+      for (const id of ids) {
+        this.workingIds = [id];
+        this.say(`Writing versions · sentence ${this.sentencesDone + 1} of ${ids.length}`, this.fraction(), 'working');
+        versions.set(id, await sentenceVariants(doc, id, engine, { register: this.register, signal, detect, voice: this.register === 'sample' ? this.voice : null, meaning }));
+        this.sentencesDone++;
+      }
+      this.workingIds = [];
+      if (choice.kind === 'local') unloadLocalEngine();
+      const device = await pickDevice();
+      await untilAborted(this.loadCheck(device), signal);
+      const picks = await untilAborted(
+        pickBest(this.checkBlocks(), versions, scoreTexts, (done, total) => this.say(`Scoring the versions · ${done} of ${total}`, done / total, 'working')),
+        signal,
+      );
+      for (const id of ids) {
+        const s = this.find(id);
+        if (!s) continue;
+        const pick = picks.get(id);
+        s.note = undefined;
+        if (pick) {
+          s.rewrite = pick.text;
+          s.status = 'rewritten';
+        } else {
+          s.status = 'kept';
+          s.note = versions.get(id)?.length ? 'None of the new versions scored lower with the AI check.' : 'No new version kept the meaning.';
+        }
+      }
+      this.finish();
+      this.check = { kind: 'working' };
+      const result = await this.checkNow(device);
+      this.check = { kind: 'done', result };
+      const now = Math.round(result.ai * 100);
+      this.say(`AI check: ${before !== null ? `${before}% → ` : ''}${now}%. ${picks.size} of ${ids.length} sentences changed.`, null, 'quiet');
+    } catch (err) {
+      if (err instanceof EngineError && err.code === 'aborted') this.pauseState();
+      else if (this.phase === 'running') this.fail(err);
+      else {
+        this.check = { kind: 'error', message: `The AI check failed: ${err instanceof Error ? err.message : String(err)}` };
+        this.say(this.check.message, null, 'error');
+      }
+    } finally {
+      this.workingIds = [];
+    }
+  }
+
+  private markOne(id: string): void {
     const s = this.find(id);
     if (!s) return;
+    // Rewrite what the reader sees now: an accepted rewrite, their own edit or a restored original.
+    s.text = sentenceText(s);
     s.stiff = true;
     s.audited = false;
     s.auditFlags = undefined;
     s.decision = undefined;
-    if (s.status === 'rewritten' && s.rewrite !== undefined) s.text = s.rewrite;
+    s.edited = false;
     s.rewrite = undefined;
     s.status = s.text === s.source ? 'clean' : 'fixed';
-    s.flags = [...s.flags, { ruleId: 'checker', category: 'filler', start: -1, end: -1, match: '', note: 'Reads machine-like to the checker', fixed: false }];
-    this.check = { kind: 'idle' };
+    s.flags = [...s.flags.filter((f) => f.ruleId !== 'checker'), { ruleId: 'checker', category: 'filler', start: -1, end: -1, match: '', note: 'An AI detector flags this sentence', fixed: false }];
+  }
+
+  markForRewrite(id: string): void {
+    this.markOne(id);
     this.selectedId = id;
     if (this.phase === 'done') this.phase = 'review';
     void this.persist();
+  }
+
+  /** Queues every sentence the last check flagged; the caller starts the rewrite. */
+  markFlagged(): number {
+    if (this.check.kind !== 'done') return 0;
+    const ids = this.check.result.flagged.map((f) => f.id);
+    this.lastScore = Math.round(this.check.result.ai * 100);
+    this.refineIds = ids;
+    for (const id of ids) this.markOne(id);
+    this.check = { kind: 'idle' };
+    this.scope = 'stiff';
+    if (this.phase === 'done') this.phase = 'review';
+    void this.persist();
+    return ids.length;
   }
 
   async setNotify(on: boolean): Promise<void> {

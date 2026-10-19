@@ -1,27 +1,27 @@
-export const OBSERVER = 'onnx-community/Qwen2.5-0.5B';
-export const PERFORMER = 'onnx-community/Qwen2.5-0.5B-Instruct';
-/** Tokens per forward pass; longer windows cost memory for 152k-wide logits. */
-export const WINDOW = 256;
+/**
+ * desklib/ai-text-detector-v1.01 (MIT), exported to ONNX with its weights stored as
+ * int8 and computed in fp32. Plain int8 quantization moves its scores too much;
+ * weight-only int8 matches fp32 to within 0.13 logits (scripts/detector-quantize.py).
+ */
+export const DETECTOR_MODEL = import.meta.env.VITE_DETECTOR_MODEL ?? 'YatoVoid/forsakeai-detector';
+/** Overrides the Hugging Face host, for testing against a local copy of the model. */
+export const DETECTOR_HOST: string | undefined = import.meta.env.VITE_DETECTOR_HOST;
 export const MAX_TOKENS = 512;
+/** Texts per forward pass. Padding makes mixed lengths cost the longest one. */
+export const BATCH = 6;
 
 export type DetectorDevice = 'webgpu' | 'wasm';
 
-/** Download size for both models plus the tokenizer, in MB. */
-export const DOWNLOAD_MB: Record<DetectorDevice, number> = { webgpu: 970, wasm: 1030 };
+/** Model weights plus the tokenizer, in MB. */
+export const DOWNLOAD_MB = 450;
 
 export type WorkerRequest =
-  | { type: 'load'; device: DetectorDevice; ortBase: string }
-  | { type: 'score'; sentences: Array<{ id: string; text: string }>; maxTokens: number };
+  | { type: 'load'; device: DetectorDevice; ortBase: string; model: string; host?: string }
+  | { type: 'score'; id: number; texts: string[] };
 
 export type WorkerResponse =
   | { type: 'download'; loaded: number; total: number }
   | { type: 'ready'; device: DetectorDevice }
-  | { type: 'scoring'; done: number; total: number }
-  | {
-      type: 'result';
-      device: DetectorDevice;
-      tokens: number;
-      score: number;
-      sentences: Array<{ id: string; score: number | undefined }>;
-    }
-  | { type: 'error'; message: string };
+  | { type: 'batch'; id: number; done: number }
+  | { type: 'logits'; id: number; logits: number[] }
+  | { type: 'error'; id?: number; message: string };

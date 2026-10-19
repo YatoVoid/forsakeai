@@ -435,3 +435,33 @@ describe('whole-paragraph rewrites on device', () => {
     expect(serialize(doc)).toBe('This matters. Plain text here.');
   });
 });
+
+describe('sentenceVariants', () => {
+  it('keeps only versions that pass the usual checks', async () => {
+    const { sentenceVariants } = await import('../src/pipeline/run');
+    const { doc } = setup('The team shipped the release on time. It works well for everyone involved.');
+    const replies = [
+      'The team got the release out on time.',
+      'The team shipped the release on time.',
+      'The team shipped release 7 on time.',
+      'Il team ha rilasciato la versione in tempo per tutti noi.',
+      'They delivered on schedule, the team did.',
+      'The team got the release out on time.',
+    ];
+    const temps: Array<number | undefined> = [];
+    const engine: Engine = {
+      kind: 'local',
+      label: 'stub',
+      concurrency: 1,
+      granularity: 'sentence',
+      complete: async (req: CompletionRequest) => {
+        temps.push(req.temperature);
+        return replies.shift() ?? '';
+      },
+    };
+    const id = doc.blocks[0]!.sentences[0]!.id;
+    const out = await sentenceVariants(doc, id, engine, { register: 'keep', signal: new AbortController().signal, detect: () => 'eng' });
+    expect(out).toEqual(['The team got the release out on time.', 'They delivered on schedule, the team did.']);
+    expect(temps).toEqual([0.7, 0.9, 0.8, 1, 1, 1.1]);
+  });
+});

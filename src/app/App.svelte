@@ -279,7 +279,15 @@
           <button class="btn btn-ghost" onclick={dismissTip} aria-label="Got it, hide this tip"><X class="icon" aria-hidden="true" /></button>
         </div>
       {/if}
-      <Manuscript doc={session.doc} {view} selectedId={session.selectedId} activeIds={workingIds} onSelect={(id) => (session.selectedId = id)} />
+      <Manuscript
+        doc={session.doc}
+        {view}
+        selectedId={session.selectedId}
+        activeIds={workingIds}
+        bands={session.checkBands}
+        flagged={session.checkFlags}
+        onSelect={(id) => (session.selectedId = id)}
+      />
     {/if}
 
   </div>

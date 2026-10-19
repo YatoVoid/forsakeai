@@ -266,3 +266,67 @@ export function parseSentenceResponse(text: string): string | undefined {
   }
   return undefined;
 }
+
+export type VariantStyle = 'plain' | 'reshape';
+
+/**
+ * One alternative version of a sentence an AI detector flagged. Several are drawn
+ * with different styles and temperatures, and the detector picks among them.
+ */
+export function buildVariantPrompt(
+  masked: string,
+  before: string,
+  opts: { style: VariantStyle; register: Register; lang: string; voice?: VoiceProfile | null },
+): { system: string; user: string } {
+  const how =
+    opts.style === 'plain'
+      ? ["Use everyday words and contractions. Say the point directly, the way you'd say it to a friend."]
+      : [
+          'Change its shape, not just a few words: start it differently, pick a different main verb, or split it into two sentences.',
+          'Plain, slightly informal wording.',
+        ];
+  const system = [
+    'An AI detector flagged this sentence from a draft as machine-written. Rewrite it so a person could have written it.',
+    ...how,
+    '',
+    'Rules:',
+    '- Keep every fact, name and claim. Add nothing.',
+    `- Write in ${languageName(opts.lang)}. Never translate.`,
+    '- Tokens like [[3]] stand for locked text. Copy each one exactly once, unchanged.',
+    '- Do not write digits except inside tokens.',
+    '- Do not use dashes as punctuation.',
+    ...(opts.lang === 'eng' ? [`- Never use these words: ${AVOID_EN}.`] : []),
+    `- ${REGISTERS[opts.register]}`,
+    ...(opts.register === 'sample' && opts.voice ? [`- The author's habits: ${opts.voice.brief}.`] : []),
+    '',
+    'Reply with the rewritten text only. No quotes, no labels, no explanation.',
+  ].join('\n');
+  const parts = [];
+  if (before) parts.push(`Previous sentence, for tone only (do not rewrite it): ${before}`);
+  parts.push(`Sentence to rewrite: ${masked}`, 'Rewritten sentence:');
+  return { system, user: parts.join('\n\n') };
+}
+
+/** API models write all the versions in one reply, one per numbered line. */
+export function buildVariantsPrompt(
+  masked: string,
+  before: string,
+  count: number,
+  opts: { register: Register; lang: string; voice?: VoiceProfile | null },
+): { system: string; user: string } {
+  const one = buildVariantPrompt(masked, before, { ...opts, style: 'reshape' });
+  const system = one.system.replace(
+    'Reply with the rewritten text only. No quotes, no labels, no explanation.',
+    `Write ${count} versions that differ from each other in structure and wording. Output one per line, numbered "1:" to "${count}:", and nothing else.`,
+  );
+  return { system, user: one.user.replace('Rewritten sentence:', 'Versions:') };
+}
+
+export function parseVariants(text: string): string[] {
+  const out: string[] = [];
+  for (const line of stripThinking(text).split(/\r?\n/)) {
+    const m = /^\s*[*_`]*\s*\d+\s*[*_`]*\s*[:.)]\s*(.+?)\s*$/.exec(line);
+    if (m) out.push(m[1]!.replace(/^["“'](.*)["”']$/, '$1').trim());
+  }
+  return out.filter(Boolean);
+}
